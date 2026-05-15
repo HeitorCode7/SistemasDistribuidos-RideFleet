@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'ridefleet-grupo-a'
+    static_configs:
+      - targets: ['grupo-a:3000']
+    metrics_path: /metrics
+
+  - job_name: 'ridefleet-grupo-b'
+    static_configs:
+      - targets: ['grupo-b:3001']
+    metrics_path: /metrics
+
+  - job_name: 'ridefleet-grupo-c'
+    static_configs:
+      - targets: ['grupo-c:3002']
+    metrics_path: /metrics

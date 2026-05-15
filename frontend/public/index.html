@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RideFleet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --surface2: #1a1a26;
+      --border: #252535;
+      --accent: #7c6eff;
+      --accent2: #ff6e7c;
+      --accent3: #6effc8;
+      --text: #e8e8f0;
+      --muted: #6b6b80;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Space Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 1.5rem;
+      letter-spacing: -0.03em;
+    }
+    .logo span { color: var(--accent); }
+    .service-badge {
+      font-size: 0.75rem;
+      padding: 4px 12px;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Layout ── */
+    main {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 0;
+      height: calc(100vh - 65px);
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-section {
+      padding: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section h2 {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* Form */
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+      letter-spacing: 0.06em;
+    }
+    .field input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.82rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .field input:focus { border-color: var(--accent); }
+
+    .btn {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: var(--radius);
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Rides list */
+    .rides-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .ride-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .ride-card:hover { border-color: var(--accent); }
+    .ride-card.selected { border-color: var(--accent); background: #1a1a30; }
+    .ride-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .ride-id {
+      font-size: 0.65rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+    .state-pill {
+      font-size: 0.6rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .state-request    { background: #2a2010; color: #f0a030; border: 1px solid #f0a03040; }
+    .state-match      { background: #10202a; color: #30a0f0; border: 1px solid #30a0f040; }
+    .state-confirm    { background: #0f2a1a; color: #30f090; border: 1px solid #30f09040; }
+    .state-in_transit { background: #1a0f2a; color: var(--accent); border: 1px solid #7c6eff40; }
+    .state-complete   { background: #0f2a1a; color: var(--accent3); border: 1px solid #6effc840; }
+    .state-cancelled  { background: #2a0f10; color: var(--accent2); border: 1px solid #ff6e7c40; }
+    .state-compensating { background: #2a1810; color: #ff9060; border: 1px solid #ff906040; }
+
+    .ride-route {
+      font-size: 0.75rem;
+      color: var(--text);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .ride-route .sep { color: var(--muted); }
+
+    .delegated-badge {
+      margin-top: 6px;
+      font-size: 0.65rem;
+      color: var(--accent2);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* ── Main content ── */
+    .content {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .content-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 0 24px;
+    }
+    .tab {
+      padding: 14px 20px;
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: none;
+    }
+    .tab-panel.active { display: block; }
+
+    /* Detail panel */
+    .detail-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .detail-section h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* State machine viz */
+    .state-flow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .state-node {
+      font-size: 0.65rem;
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      transition: all 0.3s;
+    }
+    .state-node.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: #7c6eff15;
+    }
+    .state-node.done {
+      border-color: var(--accent3);
+      color: var(--accent3);
+      background: #6effc810;
+    }
+    .state-arrow { color: var(--muted); font-size: 0.8rem; }
+
+    /* Causal log */
+    .log-entry {
+      display: grid;
+      grid-template-columns: 60px 100px 1fr;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.72rem;
+      align-items: start;
+    }
+    .log-ts { color: var(--accent); font-weight: 700; }
+    .log-service { color: var(--accent3); }
+    .log-event { color: var(--text); }
+
+    /* Circuit Breaker status */
+    .cb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .cb-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+    .cb-partner { font-size: 0.75rem; color: var(--text); margin-bottom: 8px; }
+    .cb-state-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.7rem;
+    }
+    .cb-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .cb-dot-closed { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); }
+    .cb-dot-open   { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); }
+    .cb-dot-half   { background: #f0a030; box-shadow: 0 0 8px #f0a030; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 0.8rem; }
+
+    /* Notification toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      font-size: 0.78rem;
+      max-width: 320px;
+      z-index: 999;
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.3s;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-color: var(--accent3); color: var(--accent3); }
+    .toast.error   { border-color: var(--accent2); color: var(--accent2); }
+    .toast.info    { border-color: var(--accent); color: var(--accent); }
+
+    /* Locks panel */
+    .lock-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 0.72rem;
+    }
+    .lock-id { color: var(--accent); }
+    .lock-ttl { color: var(--muted); }
+
+    /* Progress bar for TTL */
+    .ttl-bar {
+      width: 60px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .ttl-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.5s linear;
+    }
+
+    /* Sim controls */
+    .sim-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .btn-sm {
+      padding: 10px;
+      font-size: 0.75rem;
+    }
+    .btn-danger { background: #2a1015; border: 1px solid var(--accent2); color: var(--accent2); }
+    .btn-warn   { background: #2a2010; border: 1px solid #f0a030; color: #f0a030; }
+    .btn-info   { background: #10202a; border: 1px solid #30a0f0; color: #30a0f0; }
+    .btn-success { background: #0f2a1a; border: 1px solid var(--accent3); color: var(--accent3); }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Ride<span>Fleet</span></div>
+  <span class="service-badge" id="service-id-badge">carregando...</span>
+</header>
+
+<main>
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <!-- Request form -->
+    <div class="sidebar-section">
+      <h2>Nova Corrida</h2>
+      <div class="field">
+        <label>Passageiro ID</label>
+        <input id="passengerId" value="passageiro-001" />
+      </div>
+      <div class="field">
+        <label>Origem</label>
+        <input id="origin" placeholder="Ex: UFV Campus" value="UFV Campus" />
+      </div>
+      <div class="field">
+        <label>Destino</label>
+        <input id="destination" placeholder="Ex: Centro Rio Paranaíba" value="Centro Rio Paranaíba" />
+      </div>
+      <button class="btn btn-primary" id="btn-request">Solicitar Corrida</button>
+    </div>
+
+    <!-- Rides list -->
+    <div style="padding: 16px 24px 8px; border-bottom: 1px solid var(--border)">
+      <span style="font-size:0.7rem; letter-spacing:.1em; color:var(--muted); font-family:'Syne',sans-serif; font-weight:700; text-transform:uppercase;">
+        Corridas
+      </span>
+      <span id="rides-count" style="float:right; font-size:0.7rem; color:var(--muted);">0</span>
+    </div>
+    <div class="rides-list" id="rides-list">
+      <div class="empty-state">
+        <div class="icon">🚗</div>
+        <p>Nenhuma corrida ainda.<br>Solicite a primeira acima!</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Content area ── -->
+  <div class="content">
+    <div class="content-tabs">
+      <button class="tab active" data-tab="detail">Detalhes</button>
+      <button class="tab" data-tab="log">Log Causal</button>
+      <button class="tab" data-tab="circuit">Circuit Breakers</button>
+      <button class="tab" data-tab="locks">Locks</button>
+      <button class="tab" data-tab="sim">Simulação</button>
+    </div>
+
+    <!-- Detail tab -->
+    <div class="tab-panel active" id="tab-detail">
+      <div id="detail-empty" class="empty-state">
+        <div class="icon">🔍</div>
+        <p>Selecione uma corrida para ver detalhes.</p>
+      </div>
+      <div id="detail-content" style="display:none;">
+        <div class="detail-section">
+          <h3>Máquina de Estados</h3>
+          <div class="state-flow" id="state-flow"></div>
+        </div>
+        <div class="detail-section">
+          <h3>Informações</h3>
+          <div id="ride-info"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Causal log tab -->
+    <div class="tab-panel" id="tab-log">
+      <div class="detail-section">
+        <h3>Log Causal — Relógio de Lamport</h3>
+        <div id="causal-log">
+          <div class="empty-state"><p>Selecione uma corrida primeiro.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Circuit breakers tab -->
+    <div class="tab-panel" id="tab-circuit">
+      <div class="detail-section">
+        <h3>Circuit Breakers por Parceiro</h3>
+        <div class="cb-grid" id="cb-grid">
+          <div class="empty-state"><p>Nenhum parceiro configurado.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Locks tab -->
+    <div class="tab-panel" id="tab-locks">
+      <div class="detail-section">
+        <h3>Locks Distribuídos Ativos</h3>
+        <div id="locks-list">
+          <div class="empty-state"><p>Nenhum lock ativo.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Simulation tab -->
+    <div class="tab-panel" id="tab-sim">
+      <div class="detail-section">
+        <h3>Controles de Simulação / Stress Test</h3>
+        <p style="font-size:0.75rem; color:var(--muted); margin-bottom:16px;">
+          Simule cenários de falha e estresse para testar os mecanismos distribuídos.
+        </p>
+        <div class="sim-grid">
+          <button class="btn btn-sm btn-danger" onclick="sim('flood')">🌊 Flood de corridas (10x)</button>
+          <button class="btn btn-sm btn-warn"   onclick="sim('concurrent-locks')">🔒 Lock contention (5 simultâneas)</button>
+          <button class="btn btn-sm btn-info"   onclick="sim('audit-clock')">🕐 Ver relógio atual</button>
+          <button class="btn btn-sm btn-success" onclick="sim('status')">📊 Status do serviço</button>
+        </div>
+        <div id="sim-output" style="margin-top:16px; font-size:0.72rem; color:var(--muted);"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const API = window.location.origin + '/api';
+  let selectedRideId = null;
+  let rides = [];
+  let ws;
+
+  // ── Bootstrap ──────────────────────────────
+  async function init() {
+    await loadStatus();
+    await loadRides();
+    await loadCircuitBreakers();
+    connectWS();
+    setInterval(refresh, 3000);
+  }
+
+  async function loadStatus() {
+    try {
+      const r = await fetch(`${API}/audit/status`);
+      const data = await r.json();
+      document.getElementById('service-id-badge').textContent = data.serviceId;
+    } catch (_) {}
+  }
+
+  async function refresh() {
+    await loadRides();
+    await loadCircuitBreakers();
+    await loadLocks();
+    if (selectedRideId) {
+      await loadRideDetail(selectedRideId);
+      await loadCausalLog(selectedRideId);
+    }
+  }
+
+  // ── WebSocket ──────────────────────────────
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}`);
+    ws.onmessage = e => {
+      const msg = JSON.parse(e.data);
+      if (msg.event === 'ride.update') loadRides();
+      toast(msg.event, 'info');
+    };
+    ws.onclose = () => setTimeout(connectWS, 2000);
+  }
+
+  // ── Request ride ───────────────────────────
+  document.getElementById('btn-request').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-request');
+    btn.disabled = true;
+    btn.textContent = 'Solicitando...';
+    try {
+      const body = {
+        passengerId: document.getElementById('passengerId').value,
+        origin: document.getElementById('origin').value,
+        destination: document.getElementById('destination').value,
+      };
+      const r = await fetch(`${API}/rides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      toast('Corrida solicitada! ' + data.rideId.slice(0,8), 'success');
+      await loadRides();
+      selectRide(data.rideId);
+    } catch (err) {
+      toast('Erro: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Solicitar Corrida';
+    }
+  });
+
+  // ── Rides list ─────────────────────────────
+  async function loadRides() {
+    try {
+      const r = await fetch(`${API}/rides`);
+      rides = await r.json();
+      renderRidesList();
+    } catch (_) {}
+  }
+
+  function renderRidesList() {
+    const list = document.getElementById('rides-list');
+    document.getElementById('rides-count').textContent = rides.length;
+    if (!rides.length) {
+      list.innerHTML = `<div class="empty-state"><div class="icon">🚗</div><p>Nenhuma corrida ainda.</p></div>`;
+      return;
+    }
+    list.innerHTML = rides.slice().reverse().map(r => `
+      <div class="ride-card ${r.rideId === selectedRideId ? 'selected' : ''}"
+           onclick="selectRide('${r.rideId}')">
+        <div class="ride-card-top">
+          <span class="ride-id">${r.rideId.slice(0,12)}…</span>
+          <span class="state-pill state-${r.state}">${r.state}</span>
+        </div>
+        <div class="ride-route">
+          <span>${r.origin}</span>
+          <span class="sep">→</span>
+          <span>${r.destination}</span>
+        </div>
+        ${r.assignedService && r.assignedService !== (r.ownerService || '') ?
+          `<div class="delegated-badge">⚡ Delegada → ${r.assignedService}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  // ── Ride detail ────────────────────────────
+  async function selectRide(rideId) {
+    selectedRideId = rideId;
+    renderRidesList();
+    await loadRideDetail(rideId);
+    await loadCausalLog(rideId);
+  }
+
+  async function loadRideDetail(rideId) {
+    try {
+      const r = await fetch(`${API}/rides/${rideId}`);
+      const ride = await r.json();
+      renderDetail(ride);
+    } catch (_) {}
+  }
+
+  const STATES = ['request','match','confirm','in_transit','complete'];
+
+  function renderDetail(ride) {
+    document.getElementById('detail-empty').style.display = 'none';
+    document.getElementById('detail-content').style.display = 'block';
+
+    // State flow
+    const flow = document.getElementById('state-flow');
+    flow.innerHTML = STATES.map((s, i) => {
+      const idx = STATES.indexOf(ride.state);
+      const cls = s === ride.state ? 'active' : (STATES.indexOf(s) < idx ? 'done' : '');
+      return `${i > 0 ? '<span class="state-arrow">→</span>' : ''}<div class="state-node ${cls}">${s}</div>`;
+    }).join('');
+
+    // Info
+    const info = document.getElementById('ride-info');
+    const kv = (label, val) =>
+      `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.75rem;">
+        <span style="color:var(--muted)">${label}</span>
+        <span style="color:var(--text)">${val || '—'}</span>
+      </div>`;
+    info.innerHTML = [
+      kv('ID', `<span style="font-size:.65rem">${ride.rideId}</span>`),
+      kv('Passageiro', ride.passengerId),
+      kv('Origem', ride.origin),
+      kv('Destino', ride.destination),
+      kv('Serviço dono', ride.ownerService),
+      kv('Serviço atribuído', ride.assignedService),
+      kv('Motorista', ride.driverId),
+      kv('Estado', `<span class="state-pill state-${ride.state}">${ride.state}</span>`),
+    ].join('');
+  }
+
+  // ── Causal log ─────────────────────────────
+  async function loadCausalLog(rideId) {
+    try {
+      const r = await fetch(`${API}/audit/causal/${rideId}`);
+      const data = await r.json();
+      const container = document.getElementById('causal-log');
+      if (!data.causalLog || !data.causalLog.length) {
+        container.innerHTML = '<div class="empty-state"><p>Nenhum evento causal registrado.</p></div>';
+        return;
+      }
+      container.innerHTML = data.causalLog.map(e => `
+        <div class="log-entry">
+          <span class="log-ts">T=${e.ts}</span>
+          <span class="log-service">${e.serviceId}</span>
+          <span class="log-event">${e.eventType}</span>
+        </div>
+      `).join('');
+    } catch (_) {}
+  }
+
+  // ── Circuit breakers ───────────────────────
+  async function loadCircuitBreakers() {
+    try {
+      const r = await fetch(`${API}/audit/circuit-breakers`);
+      const data = await r.json();
+      const grid = document.getElementById('cb-grid');
+      const keys = Object.keys(data);
+      if (!keys.length) {
+        grid.innerHTML = '<div class="empty-state"><p>Nenhum parceiro configurado.</p></div>';
+        return;
+      }
+      grid.innerHTML = keys.map(k => {
+        const cb = data[k];
+        const dotCls = cb.state === 'CLOSED' ? 'cb-dot-closed'
+                     : cb.state === 'OPEN'   ? 'cb-dot-open'
+                     : 'cb-dot-half';
+        return `
+          <div class="cb-card">
+            <div class="cb-partner">${cb.partnerId}</div>
+            <div class="cb-state-indicator">
+              <div class="cb-dot ${dotCls}"></div>
+              <span>${cb.state}</span>
+            </div>
+            <div style="margin-top:8px;font-size:.65rem;color:var(--muted)">
+              Falhas: ${cb.failureCount}
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch (_) {}
+  }
+
+  // ── Locks ──────────────────────────────────
+  async function loadLocks() {
+    try {
+      const r = await fetch(`${API}/audit/locks`);
+      const { locks } = await r.json();
+      const container = document.getElementById('locks-list');
+      if (!locks.length) {
+        container.innerHTML = '<div class="empty-state"><p>Nenhum lock ativo.</p></div>';
+        return;
+      }
+      container.innerHTML = locks.map(l => `
+        <div class="lock-item">
+          <div>
+            <div class="lock-id">${l.rideId.slice(0,12)}…</div>
+            <div class="lock-ttl">owner: ${l.owner}</div>
+          </div>
+          <div class="ttl-bar">
+            <div class="ttl-fill" style="width:${Math.round(l.ttlRemaining/50)}%"></div>
+          </div>
+        </div>
+      `).join('');
+    } catch (_) {}
+  }
+
+  // ── Tabs ───────────────────────────────────
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      if (tab.dataset.tab === 'locks') loadLocks();
+      if (tab.dataset.tab === 'circuit') loadCircuitBreakers();
+    });
+  });
+
+  // ── Simulation ─────────────────────────────
+  async function sim(type) {
+    const out = document.getElementById('sim-output');
+    out.textContent = 'Executando...';
+    try {
+      if (type === 'flood') {
+        const promises = Array.from({ length: 10 }, (_, i) =>
+          fetch(`${API}/rides`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              passengerId: `stress-passenger-${i}`,
+              origin: `Origem ${i}`,
+              destination: `Destino ${i}`,
+            }),
+          })
+        );
+        const results = await Promise.allSettled(promises);
+        const ok = results.filter(r => r.status === 'fulfilled').length;
+        out.textContent = `✅ ${ok}/10 corridas criadas com sucesso`;
+        await loadRides();
+      } else if (type === 'concurrent-locks') {
+        // Tenta adquirir lock na mesma corrida 5x simultaneamente
+        const rides_now = await fetch(`${API}/rides`).then(r => r.json());
+        if (!rides_now.length) { out.textContent = 'Crie uma corrida primeiro.'; return; }
+        const rideId = rides_now[0].rideId;
+        const promises = Array.from({ length: 5 }, (_, i) =>
+          fetch(`${API}/rides`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              passengerId: `concurrent-${i}`,
+              origin: 'A', destination: 'B',
+            }),
+          })
+        );
+        const results = await Promise.allSettled(promises);
+        out.textContent = `Lock contention test: ${results.length} tentativas simultâneas`;
+      } else if (type === 'audit-clock') {
+        const r = await fetch(`${API}/audit/clock`);
+        const data = await r.json();
+        out.textContent = `Relógio Lamport: T=${data.currentTime} | Eventos: ${data.recentEvents.length}`;
+      } else if (type === 'status') {
+        const r = await fetch(`${API}/audit/status`);
+        const data = await r.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      }
+    } catch (err) {
+      out.textContent = 'Erro: ' + err.message;
+    }
+  }
+
+  // ── Toast ──────────────────────────────────
+  let toastTimer;
+  function toast(msg, type = 'info') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast show ${type}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  init();
+</script>
+</body>
+</html>
