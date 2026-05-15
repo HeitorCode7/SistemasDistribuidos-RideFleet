@@ -3,13 +3,10 @@
   "version": "1.0.0",
   "description": "RideFleet - Serviço de transporte distribuído",
   "main": "src/index.js",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "jest --coverage",
-    "test:watch": "jest --watch",
-    "lint": "eslint src/"
-  },
+ "scripts": {
+  "start": "node src/index.js",
+  "test": "jest --watch"
+},
   "dependencies": {
     "express": "^4.18.2",
     "uuid": "^9.0.0",
