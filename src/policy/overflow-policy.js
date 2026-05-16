@@ -1,19 +1,4 @@
-// src/policy/overflow-policy.js
-// Política de Overflow — Define quando o serviço está "congestionado"
-//
-// Critérios de decisão:
-//   1. Motoristas disponíveis (principal): se > threshold → local, else → delegate/queue
-//   2. Tamanho da fila: se fila cheia → queue
-//   3. Latência do Core: se alto latency + low availability → queue
-//   4. Taxa de rejeição: se alta → temporariamente queue em vez de delegar
-//
-// Estados de decisão:
-//   - 'local'     → há motoristas, aceita localmente
-//   - 'delegate'  → core disponível, delega
-//   - 'queue'     → core indisponível ou serviço sobrecarregado, enfileira
-//   - 'reject'    → fila cheia e sem motoristas, rejeita completamente
-
-const { driverRegistry } = require('../drivers/driver-registry');
+const { driverRegistry } = require('../drivers/driverRegistry');
 const { coreClient } = require('../core/core-client');
 const config = require('../../config');
 

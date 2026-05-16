@@ -1,9 +1,4 @@
 'use strict';
-
-/**
- * RideQueue — FIFO queue of pending rides (local pool).
- * Used when overflow policy decides to hold a ride locally.
- */
 class RideQueue {
   /**
    * @param {number} [maxSize=100]

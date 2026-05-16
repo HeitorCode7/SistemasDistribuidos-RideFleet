@@ -1,5 +1,3 @@
-// src/routes/auction.js
-// Rotas de leilão — recebe propostas de parceiros
 
 const express = require('express');
 const router = express.Router();
@@ -7,7 +5,6 @@ const { auctionService } = require('../consensus/auction');
 const { getClock } = require('../logical-clock/lamport-clock');
 const config = require('../../config');
 
-// POST /api/auction/propose — Receber solicitação de proposta
 router.post('/propose', (req, res) => {
   const { rideId, origin, destination, auctionTs, requesterServiceId } = req.body;
   if (!rideId || !auctionTs) {

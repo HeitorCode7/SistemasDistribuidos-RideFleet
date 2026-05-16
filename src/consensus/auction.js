@@ -1,9 +1,3 @@
-// src/consensus/auction.js
-// Req 3 — Consenso / Leilão de Corrida
-//
-// Quando o serviço está congestionado, faz broadcast para parceiros,
-// coleta propostas (ETA + preço) e escolhe o vencedor de forma determinística.
-
 const axios = require('axios');
 const { registry: cbRegistry } = require('../circuit-breaker/circuit-breaker');
 const { getClock } = require('../logical-clock/lamport-clock');

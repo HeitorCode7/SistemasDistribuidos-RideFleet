@@ -1,6 +1,3 @@
-// src/routes/rides.js
-// Rotas principais de corridas
-
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -17,9 +14,7 @@ const config = require('../../config');
 
 const queue = new RideQueue(config.rideQueueMaxSize || 100);
 
-// ─────────────────────────────────────────────
-// POST /api/rides — Solicitar nova corrida
-// ─────────────────────────────────────────────
+
 router.post('/', async (req, res) => {
   const { passengerId, origin, destination } = req.body;
   if (!passengerId || !origin || !destination) {
@@ -81,25 +76,19 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
-// GET /api/rides — Listar corridas
-// ─────────────────────────────────────────────
+
 router.get('/', (req, res) => {
   res.json(rideSaga.getAll());
 });
 
-// ─────────────────────────────────────────────
-// GET /api/rides/:rideId — Detalhes de uma corrida
-// ─────────────────────────────────────────────
+
 router.get('/:rideId', (req, res) => {
   const ride = rideSaga.get(req.params.rideId);
   if (!ride) return res.status(404).json({ error: 'Corrida não encontrada' });
   res.json(ride);
 });
 
-// ─────────────────────────────────────────────
-// POST /api/rides/:rideId/accept — Receber delegação de parceiro
-// ─────────────────────────────────────────────
+
 router.post('/:rideId/accept', async (req, res) => {
   const { rideId } = req.params;
   const { origin, destination, passengerId, ownerServiceId, lamportTs } = req.body;
@@ -139,9 +128,7 @@ router.post('/:rideId/accept', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
-// PATCH /api/rides/:rideId/state — Avançar estado (para simulação/testes)
-// ─────────────────────────────────────────────
+
 router.patch('/:rideId/state', (req, res) => {
   const { newState } = req.body;
   const ride = rideSaga.transition(req.params.rideId, newState);
@@ -149,9 +136,7 @@ router.patch('/:rideId/state', (req, res) => {
   res.json(ride);
 });
 
-// ─────────────────────────────────────────────
-// Helpers internos
-// ─────────────────────────────────────────────
+
 
 async function _acceptLocally(ride) {
   const { v4: uuidv4 } = require('uuid');

@@ -1,3 +1,6 @@
+// src/saga/ride-saga.js
+// Req 2 — Commit Distribuído / Saga Pattern
+
 const { v4: uuidv4 } = require('uuid');
 const { getClock } = require('../logical-clock/lamport-clock');
 const { metrics } = require('../middleware/metrics');

@@ -1,12 +1,3 @@
-// src/circuit-breaker/circuit-breaker.js
-// Req 4 — Circuit Breaker
-//
-// Máquina de estados: CLOSED -> OPEN -> HALF-OPEN -> CLOSED
-// Estados:
-//   CLOSED    — operação normal
-//   OPEN      — serviço isolado, requisições bloqueadas
-//   HALF-OPEN — modo de teste, uma requisição permitida
-
 const { metrics } = require('../middleware/metrics');
 
 const STATE = {

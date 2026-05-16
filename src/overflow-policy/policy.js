@@ -1,149 +1,179 @@
-// src/policy/overflow-policy.js
-// Política de Overflow — Define quando o serviço está "congestionado"
-//
-// Critérios de decisão:
-//   1. Motoristas disponíveis (principal): se > threshold → local, else → delegate/queue
-//   2. Tamanho da fila: se fila cheia → queue
-//   3. Latência do Core: se alto latency + low availability → queue
-//   4. Taxa de rejeição: se alta → temporariamente queue em vez de delegar
-//
-// Estados de decisão:
-//   - 'local'     → há motoristas, aceita localmente
-//   - 'delegate'  → core disponível, delega
-//   - 'queue'     → core indisponível ou serviço sobrecarregado, enfileira
-//   - 'reject'    → fila cheia e sem motoristas, rejeita completamente
+const { driverService } = require('../drivers/driverService');
+const { driverRegistry } = require('../drivers/driverRegistry');
 
-const { driverRegistry } = require('../drivers/driver-registry');
 const { coreClient } = require('../core/core-client');
 const config = require('../../config');
 
 class OverflowPolicy {
   constructor(opts = {}) {
-    // Limiares configuráveis
-    this.minDriversForLocal = opts.minDriversForLocal || 1;        // mín de motoristas para aceitar local
-    this.minAvailablePercentageForLocal = opts.minAvailablePercentageForLocal || 20; // % mín disponível
-    this.maxQueueSize = opts.maxQueueSize || 100;
-    this.coreTimeoutThresholdMs = opts.coreTimeoutThresholdMs || 5000;
+    this.minDriversForLocal =
+      opts.minDriversForLocal || 1;
 
-    // Métricas
+    this.minAvailablePercentageForLocal =
+      opts.minAvailablePercentageForLocal || 20;
+
+    this.maxQueueSize =
+      opts.maxQueueSize || 100;
+
+    this.coreTimeoutThresholdMs =
+      opts.coreTimeoutThresholdMs || 5000;
+
     this._metricsOverloadEvents = 0;
     this._metricsLastDecision = null;
   }
 
   /**
-   * Obtém a decisão para uma nova requisição de corrida.
-   * 
-   * @param {object} ride — objeto da corrida a processar
-   * @param {object} queueSnapshot — snapshot atual da fila
-   * @returns {string} 'local' | 'delegate' | 'queue' | 'reject'
+   * Snapshot dos motoristas
    */
-  getDecision(ride, queueSnapshot) {
-    // 1. Verifica se fila está cheia
-    if (queueSnapshot && queueSnapshot.isFull) {
+  _getDriverStats() {
+    return driverRegistry.snapshot();
+  }
+
+  /**
+   * Decide ação para corrida
+   */
+  getDecision(ride, queueSnapshot = {}) {
+    // fila cheia
+    if (queueSnapshot.isFull) {
       return 'reject';
     }
 
-    // 2. Verifica motoristas disponíveis
-    const availableCount = driverRegistry.availableCount();
-    const totalCount = driverRegistry.snapshot().total;
-    const availablePercentage = (availableCount / totalCount) * 100;
+    const drivers = this._getDriverStats();
 
-    // 3. Se há motoristas suficientes, aceita localmente
-    if (availableCount >= this.minDriversForLocal && 
-        availablePercentage >= this.minAvailablePercentageForLocal) {
+    const availablePercentage =
+      drivers.total === 0
+        ? 0
+        : (drivers.available / drivers.total) * 100;
+
+    // aceita local
+    if (
+      drivers.available >= this.minDriversForLocal &&
+      availablePercentage >=
+        this.minAvailablePercentageForLocal
+    ) {
       this._metricsLastDecision = 'local';
+
       return 'local';
     }
 
-    // 4. Se circuit breaker está aberto, enfileira
+    // core indisponível
     if (!coreClient.isAvailable()) {
       this._metricsOverloadEvents += 1;
+
       this._metricsLastDecision = 'queue';
+
       return 'queue';
     }
 
-    // 5. Se serviço está muito sobrecarregado, enfileira
-    if (availableCount === 0 && (queueSnapshot?.currentSize || 0) > 0) {
+    // congestionado
+    if (
+      drivers.available === 0 &&
+      (queueSnapshot.currentSize || 0) > 0
+    ) {
       this._metricsOverloadEvents += 1;
+
       this._metricsLastDecision = 'queue';
+
       return 'queue';
     }
 
-    // 6. Por padrão, tenta delegar ao Core
+    // delega
     this._metricsLastDecision = 'delegate';
+
     return 'delegate';
   }
 
   /**
-   * Verifica se o serviço está congestionado (método booleano simples).
-   * @returns {boolean}
+   * Serviço sobrecarregado?
    */
   isOverloaded() {
-    const availableCount = driverRegistry.availableCount();
-    const totalCount = driverRegistry.snapshot().total;
-    const availablePercentage = (availableCount / totalCount) * 100;
+    const drivers = this._getDriverStats();
 
-    // Considerado sobrecarregado se:
-    // - Menos de 20% de motoristas disponíveis, E
-    // - Core não está disponível
-    return (availablePercentage < this.minAvailablePercentageForLocal) &&
-           !coreClient.isAvailable();
+    const availablePercentage =
+      drivers.total === 0
+        ? 0
+        : (drivers.available / drivers.total) * 100;
+
+    return (
+      availablePercentage <
+        this.minAvailablePercentageForLocal &&
+      !coreClient.isAvailable()
+    );
   }
 
   /**
-   * Verifica se é possível aceitar uma corrida localmente agora.
-   * @returns {boolean}
+   * Pode aceitar local?
    */
   canAcceptLocal() {
-    const availableCount = driverRegistry.availableCount();
-    const totalCount = driverRegistry.snapshot().total;
-    const availablePercentage = (availableCount / totalCount) * 100;
+    const drivers = this._getDriverStats();
 
-    return availableCount >= this.minDriversForLocal &&
-           availablePercentage >= this.minAvailablePercentageForLocal;
+    const availablePercentage =
+      drivers.total === 0
+        ? 0
+        : (drivers.available / drivers.total) * 100;
+
+    return (
+      drivers.available >= this.minDriversForLocal &&
+      availablePercentage >=
+        this.minAvailablePercentageForLocal
+    );
   }
 
   /**
-   * Verifica se é seguro delegar ao Core.
-   * @returns {boolean}
+   * Pode delegar?
    */
   canDelegate() {
     return coreClient.isAvailable();
   }
 
   /**
-   * Obtém métricas sobre decisões e estado de congestionamento.
-   * @returns {object}
+   * Métricas
    */
   getMetrics() {
-    const drivers = driverRegistry.snapshot();
-    const availablePercentage = (drivers.available / drivers.total) * 100;
+    const drivers = this._getDriverStats();
+
+    const availablePercentage =
+      drivers.total === 0
+        ? 0
+        : (drivers.available / drivers.total) * 100;
+
     const cbSnapshot = coreClient.cbSnapshot();
 
     return {
       drivers: {
         available: drivers.available,
         total: drivers.total,
-        availablePercentage: availablePercentage.toFixed(1),
         busy: drivers.busy,
+        availablePercentage:
+          availablePercentage.toFixed(1),
       },
+
       coreCircuitBreaker: {
         state: cbSnapshot.state,
         isAvailable: coreClient.isAvailable(),
         failureCount: cbSnapshot.failureCount,
       },
+
       policy: {
         lastDecision: this._metricsLastDecision,
-        overloadEvents: this._metricsOverloadEvents,
-        isCurrentlyOverloaded: this.isOverloaded(),
-        canAcceptLocal: this.canAcceptLocal(),
-        canDelegate: this.canDelegate(),
+
+        overloadEvents:
+          this._metricsOverloadEvents,
+
+        isCurrentlyOverloaded:
+          this.isOverloaded(),
+
+        canAcceptLocal:
+          this.canAcceptLocal(),
+
+        canDelegate:
+          this.canDelegate(),
       },
     };
   }
 
   /**
-   * Reseta contadores de métricas (para testes ou reset periódico).
+   * Reset métricas
    */
   resetMetrics() {
     this._metricsOverloadEvents = 0;
@@ -152,10 +182,30 @@ class OverflowPolicy {
 }
 
 const overflowPolicy = new OverflowPolicy({
-  minDriversForLocal: parseInt(process.env.MIN_DRIVERS_FOR_LOCAL || '1', 10),
-  minAvailablePercentageForLocal: parseInt(process.env.MIN_AVAILABLE_PERCENT || '20', 10),
-  maxQueueSize: parseInt(process.env.RIDE_QUEUE_MAX_SIZE || '100', 10),
-  coreTimeoutThresholdMs: parseInt(process.env.CORE_TIMEOUT_THRESHOLD_MS || '5000', 10),
+  minDriversForLocal: parseInt(
+    process.env.MIN_DRIVERS_FOR_LOCAL || '1',
+    10
+  ),
+
+  minAvailablePercentageForLocal:
+    parseInt(
+      process.env.MIN_AVAILABLE_PERCENT || '20',
+      10
+    ),
+
+  maxQueueSize: parseInt(
+    process.env.RIDE_QUEUE_MAX_SIZE || '100',
+    10
+  ),
+
+  coreTimeoutThresholdMs: parseInt(
+    process.env.CORE_TIMEOUT_THRESHOLD_MS ||
+      '5000',
+    10
+  ),
 });
 
-module.exports = { overflowPolicy, OverflowPolicy };
+module.exports = {
+  overflowPolicy,
+  OverflowPolicy,
+};
