@@ -1,0 +1,18 @@
+info:
+  name: motorista_disponivel
+  type: http
+
+http:
+  method: GET
+  url: http://localhost:3000/api/drivers?available=true
+  params:
+    - name: available
+      value: "true"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

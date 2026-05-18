@@ -1,0 +1,21 @@
+info:
+  name: atualizar_motorista
+  type: http
+  seq: 1
+
+http:
+  method: PUT
+  url: http://localhost:3000/api/drivers/70ed158a-017a-4e47-b11a-e08950a47ee8
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Jose"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

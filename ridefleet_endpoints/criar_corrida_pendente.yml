@@ -1,0 +1,22 @@
+info:
+  name: criar_corrida_pendente
+  type: http
+
+http:
+  method: POST
+  url: http://localhost:3000/api/rides
+  body:
+    type: json
+    data: |-
+      {
+        "passengerId": "Ana",
+        "origin": "Centro",
+        "destination": "Shopping"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

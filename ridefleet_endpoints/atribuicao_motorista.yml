@@ -1,0 +1,14 @@
+info:
+  name: atribuicao_motorista
+  type: http
+
+http:
+  method: GET
+  url: http://localhost:3000/api/drivers/690522d6-6583-4386-b561-aefc64ae5315/ride
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,14 @@
+info:
+  name: deletar_motorista
+  type: http
+
+http:
+  method: DELETE
+  url: http://localhost:3000/api/drivers/320bad99-7317-46ec-af44-f6626861093d
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

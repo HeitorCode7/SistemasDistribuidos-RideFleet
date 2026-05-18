@@ -1,100 +1,37 @@
-version: '3.9'
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RideFleet — Docker Compose
-#
-# Por padrão sobe 3 instâncias do serviço (grupo-a, grupo-b, grupo-c)
-# simulando a federação de grupos.
-#
-# Para rodar apenas um serviço: docker compose up grupo-a
-# ─────────────────────────────────────────────────────────────────────────────
-
 services:
 
-  # ── Grupo A (sua instância principal) ──────────────────────────────────────
-  grupo-a:
+  api:
     build: .
-    container_name: ridefleet-grupo-a
+    container_name: ridefleet-api
+
     ports:
       - "3000:3000"
+
     environment:
-      SERVICE_ID: grupo-a
       PORT: 3000
-      PARTNERS: "grupo-b:http://grupo-b:3001,grupo-c:http://grupo-c:3002"
-      MAX_LOCAL_RIDES: 3
-      AUCTION_TIMEOUT_MS: 3000
-      CB_FAILURE_THRESHOLD: 3
-      CB_RECOVERY_TIMEOUT_MS: 10000
-      LOCK_TTL_MS: 5000
+      RABBITMQ_URL: amqp://rabbitmq
+
     depends_on:
-      - grupo-b
-      - grupo-c
-    networks:
-      - ridefleet-net
+      - rabbitmq
 
-  # ── Grupo B ────────────────────────────────────────────────────────────────
-  grupo-b:
-    build: .
-    container_name: ridefleet-grupo-b
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ridefleet-rabbitmq
+
     ports:
-      - "3001:3001"
-    environment:
-      SERVICE_ID: grupo-b
-      PORT: 3001
-      PARTNERS: "grupo-a:http://grupo-a:3000,grupo-c:http://grupo-c:3002"
-      MAX_LOCAL_RIDES: 3
-      AUCTION_TIMEOUT_MS: 3000
-      CB_FAILURE_THRESHOLD: 3
-      CB_RECOVERY_TIMEOUT_MS: 10000
-      LOCK_TTL_MS: 5000
-    networks:
-      - ridefleet-net
+      - "5672:5672"
+      - "15672:15672"
 
-  # ── Grupo C ────────────────────────────────────────────────────────────────
-  grupo-c:
-    build: .
-    container_name: ridefleet-grupo-c
-    ports:
-      - "3002:3002"
-    environment:
-      SERVICE_ID: grupo-c
-      PORT: 3002
-      PARTNERS: "grupo-a:http://grupo-a:3000,grupo-b:http://grupo-b:3001"
-      MAX_LOCAL_RIDES: 3
-      AUCTION_TIMEOUT_MS: 3000
-      CB_FAILURE_THRESHOLD: 3
-      CB_RECOVERY_TIMEOUT_MS: 10000
-      LOCK_TTL_MS: 5000
-    networks:
-      - ridefleet-net
-
-  # ── Prometheus ─────────────────────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus
     container_name: ridefleet-prometheus
+
     ports:
       - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
-    networks:
-      - ridefleet-net
 
-  # ── Grafana ────────────────────────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana
     container_name: ridefleet-grafana
+
     ports:
       - "3010:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ridefleet
-    volumes:
-      - grafana-data:/var/lib/grafana
-    networks:
-      - ridefleet-net
-
-networks:
-  ridefleet-net:
-    driver: bridge
-
-volumes:
-  grafana-data:

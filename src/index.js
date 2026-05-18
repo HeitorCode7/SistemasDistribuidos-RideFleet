@@ -2,17 +2,34 @@
 // Ponto de entrada do servidor RideFleet
 
 try { require('fs').readFileSync('.env'); } catch (_) {}
+
 try {
-  const lines = require('fs').readFileSync('.env', 'utf8').split('\n');
+  const lines = require('fs')
+    .readFileSync('.env', 'utf8')
+    .split('\n');
+
   for (const line of lines) {
+
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
     const idx = trimmed.indexOf('=');
-    if (idx === -1) continue;
+
+    if (idx === -1) {
+      continue;
+    }
+
     const key = trimmed.slice(0, idx).trim();
     const val = trimmed.slice(idx + 1).trim();
-    if (!process.env[key]) process.env[key] = val;
+
+    if (!process.env[key]) {
+      process.env[key] = val;
+    }
   }
+
 } catch (_) {}
 
 const express   = require('express');
@@ -21,65 +38,142 @@ const http      = require('http');
 const WebSocket = require('ws');
 
 const config = require('../config');
+
+const { connectRabbitMQ } = require('./rabbitmq');
+
 const { getClock } = require('./logical-clock/lamport-clock');
-const { httpMetricsMiddleware, metricsHandler } = require('./middleware/metrics');
+
+const {
+  httpMetricsMiddleware,
+  metricsHandler
+} = require('./middleware/metrics');
 
 const ridesRouter   = require('./routes/rides');
 const auctionRouter = require('./routes/auction');
 const auditRouter   = require('./routes/audit');
 const driversRouter = require('./routes/drivers');
 
-const { DriverRegistry, driverRegistry } = require('./drivers/driver-registry');
+const driverRegistry = require('./drivers/driverRegistry');
+
 const { RideQueue } = require('./queue/ride-queue');
 
-const rideQueue = new RideQueue(config.queueMaxSize || 100);
+const rideQueue = new RideQueue(
+  config.queueMaxSize || 100
+);
 
 global.driverRegistry = driverRegistry;
 global.rideQueue      = rideQueue;
 
 const app = express();
+
 app.use(cors());
+
 app.use(express.json());
+
 app.use(httpMetricsMiddleware);
+
 app.use(express.static('frontend/public'));
 
 app.use('/api/rides',   ridesRouter);
+
 app.use('/api/auction', auctionRouter);
+
 app.use('/api/audit',   auditRouter);
+
 app.use('/api/drivers', driversRouter(driverRegistry));
 
 app.get('/metrics', metricsHandler);
 
 app.get('/health', (req, res) => {
+
   res.json({
-    status:    'ok',
+    status: 'ok',
+
     serviceId: config.serviceId,
-    ts:        getClock(config.serviceId).now(),
-    queue:     rideQueue.snapshot(),
-    drivers:   driverRegistry.snapshot(),
+
+    ts: getClock(config.serviceId).now(),
+
+    queue: rideQueue.snapshot(),
+
+    drivers: driverRegistry.snapshot(),
   });
 });
 
 const server = http.createServer(app);
-const wss    = new WebSocket.Server({ server });
+
+const wss = new WebSocket.Server({
+  server
+});
+
 const clients = new Set();
 
 wss.on('connection', ws => {
+
   clients.add(ws);
-  ws.on('close', () => clients.delete(ws));
+
+  ws.on('close', () => {
+    clients.delete(ws);
+  });
 });
 
 function broadcast(event, data) {
-  const msg = JSON.stringify({ event, data, serviceId: config.serviceId });
+
+  const msg = JSON.stringify({
+    event,
+    data,
+    serviceId: config.serviceId
+  });
+
   for (const ws of clients) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+    }
   }
 }
+
 global.wsBroadcast = broadcast;
 
-server.listen(config.port, () => {
-  getClock(config.serviceId).tick('service.started', { port: config.port });
-  console.log(`RideFleet Service | ID: ${config.serviceId} | Porta: ${config.port}`);
-});
+async function start() {
 
-module.exports = { app, server };
+  try {
+
+    // ─────────────────────────────────────────────
+    // RabbitMQ
+    // ─────────────────────────────────────────────
+    await connectRabbitMQ();
+
+    // ─────────────────────────────────────────────
+    // Start HTTP Server
+    // ─────────────────────────────────────────────
+    server.listen(config.port, () => {
+
+      getClock(config.serviceId).tick(
+        'service.started',
+        {
+          port: config.port
+        }
+      );
+
+      console.log(
+        `RideFleet Service | ID: ${config.serviceId} | Porta: ${config.port}`
+      );
+    });
+
+  } catch (err) {
+
+    console.error(
+      'Erro ao iniciar serviço:',
+      err
+    );
+
+    process.exit(1);
+  }
+}
+
+start();
+
+module.exports = {
+  app,
+  server
+};
