@@ -1,11 +1,10 @@
 info:
-  name: buscar_motorista_especifico
+  name: api
   type: http
-  seq: 1
 
 http:
   method: GET
-  url: http://localhost:3000/api/drivers/70ed158a-017a-4e47-b11a-e08950a47ee8
+  url: http://localhost:3000
   auth: inherit
 
 settings:

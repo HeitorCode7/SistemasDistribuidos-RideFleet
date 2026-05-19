@@ -1,7 +1,6 @@
 info:
-  name: criar_corrida
+  name: criar-corrida-pendente
   type: http
-  seq: 1
 
 http:
   method: POST
@@ -10,10 +9,10 @@ http:
     type: json
     data: |-
       {
-        "passengerId": "5",
-        "origin": "UFV",
-        "destination": "Centro"
-      }
+              "passengerId": "Ana",
+              "origin": "Centro",
+              "destination": "Shopping"
+            }
   auth: inherit
 
 settings:

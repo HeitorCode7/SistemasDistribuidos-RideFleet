@@ -1,10 +1,10 @@
 info:
-  name: deletar_motorista
+  name: atribuir-motorista
   type: http
 
 http:
-  method: DELETE
-  url: http://localhost:3000/api/drivers/320bad99-7317-46ec-af44-f6626861093d
+  method: GET
+  url: http://localhost:3000/api/drivers/20f674e2-7d6c-4f47-b5e6-9a3893d328ff/ride
   auth: inherit
 
 settings:

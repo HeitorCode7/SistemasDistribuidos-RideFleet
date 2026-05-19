@@ -1,19 +1,18 @@
 info:
-  name: criar_motorista
+  name: criar-corrida
   type: http
-  seq: 1
 
 http:
   method: POST
-  url: http://localhost:3000/api/drivers
+  url: http://localhost:3000/api/rides
   body:
     type: json
     data: |-
       {
-        "id": "d11",
-        "nome": "Gab",
-        "status": "AVAILABLE"
-      }
+              "passengerId": "5",
+              "origin": "UFV",
+              "destination": "Centro"
+            }
   auth: inherit
 
 settings:

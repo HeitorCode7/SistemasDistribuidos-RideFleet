@@ -1,11 +1,11 @@
 info:
-  name: api
+  name: listar_corridas
   type: http
-  seq: 5
 
 http:
-  method: get
-  url: http://localhost:3000
+  method: GET
+  url: http://localhost:3000/api/rides
+  auth: inherit
 
 settings:
   encodeUrl: true

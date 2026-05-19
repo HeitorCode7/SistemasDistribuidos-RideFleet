@@ -1,13 +1,13 @@
 info:
-  name: motorista_disponivel
+  name: disponibilidade-motorista
   type: http
 
 http:
   method: GET
-  url: http://localhost:3000/api/drivers?available=true
+  url: http://localhost:3000/api/drivers?available=false
   params:
     - name: available
-      value: "true"
+      value: "false"
       type: query
   auth: inherit
 

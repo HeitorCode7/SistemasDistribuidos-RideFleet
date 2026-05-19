@@ -30,6 +30,7 @@ process.env.MAX_DRIVERS = '3';
 process.env.LOCK_TTL_MS = '2000';
 
 describe('Integration Tests — Ciclo Completo de Corridas', () => {
+
   let rideSaga;
   let RIDE_STATE;
   let driverService;
@@ -37,12 +38,7 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
   let lockManager;
   let coreClient;
 
-
-
-const lockModule = require('../locks/distributed-lock');
-
-beforeEach(() => {
-  jest.resetModules();
+ beforeEach(async () => {
 
   const sagaModule = require('../saga/ride-saga');
   rideSaga = sagaModule.rideSaga;
@@ -54,16 +50,18 @@ beforeEach(() => {
   const registryModule = require('../drivers/driverRegistry');
   driverRegistry = registryModule;
 
-  driverService.reset();
-  driverRegistry.reset(); // 🔥 ESSENCIAL
+  await driverService.reset();
+  await driverRegistry.reset();
 
   const { DistributedLockManager } = require('../locks/distributed-lock');
   lockManager = new DistributedLockManager(2000);
+
   const coreModule = require('../core/core-client');
   coreClient = coreModule.coreClient;
 });
 
   test('Fluxo LOCAL completo: request → match → confirm → in_transit → complete', async () => {
+
     const ride = rideSaga.createLocal({
       passengerId: 'p1',
       origin: 'UFV',
@@ -82,12 +80,25 @@ beforeEach(() => {
     rideSaga.transition(ride.rideId, RIDE_STATE.IN_TRANSIT);
     rideSaga.transition(ride.rideId, RIDE_STATE.COMPLETE);
 
-    expect(rideSaga.get(ride.rideId).state).toBe(RIDE_STATE.COMPLETE);
+    expect(
+      rideSaga.get(ride.rideId).state
+    ).toBe(RIDE_STATE.COMPLETE);
+
   });
 
   test('Múltiplas corridas simultâneas com proteção de locks', async () => {
-    const r1 = rideSaga.createLocal({ passengerId: 'p1', origin: 'A', destination: 'B' });
-    const r2 = rideSaga.createLocal({ passengerId: 'p2', origin: 'C', destination: 'D' });
+
+    const r1 = rideSaga.createLocal({
+      passengerId: 'p1',
+      origin: 'A',
+      destination: 'B'
+    });
+
+    const r2 = rideSaga.createLocal({
+      passengerId: 'p2',
+      origin: 'C',
+      destination: 'D'
+    });
 
     const l1 = lockManager.acquire(r1.rideId, 'a');
     const l2 = lockManager.acquire(r2.rideId, 'a');
@@ -98,43 +109,73 @@ beforeEach(() => {
     const d1 = await driverService.assignDriver(r1.rideId);
     const d2 = await driverService.assignDriver(r2.rideId);
 
+    expect(d1).not.toBeNull();
+    expect(d2).not.toBeNull();
+
     expect(d1.id).not.toBe(d2.id);
+
   });
 
   test('Compensação reverte corrida para CANCELLED', async () => {
-    const ride = rideSaga.createLocal({ passengerId: 'p1', origin: 'A', destination: 'B' });
+
+    const ride = rideSaga.createLocal({
+      passengerId: 'p1',
+      origin: 'A',
+      destination: 'B'
+    });
 
     const driver = await driverService.assignDriver(ride.rideId);
 
-    rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, { driverId: driver.id });
+    expect(driver).not.toBeNull();
+
+    rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, {
+      driverId: driver.id
+    });
+
     rideSaga.compensate(ride.rideId, 'core_failure');
 
     await new Promise(r => setTimeout(r, 600));
 
-    expect(rideSaga.get(ride.rideId).state).toBe(RIDE_STATE.CANCELLED);
+    expect(
+      rideSaga.get(ride.rideId).state
+    ).toBe(RIDE_STATE.CANCELLED);
+
   });
 
   test('Contenção de locks', () => {
-    const ride = rideSaga.createLocal({ passengerId: 'p1', origin: 'A', destination: 'B' });
+
+    const ride = rideSaga.createLocal({
+      passengerId: 'p1',
+      origin: 'A',
+      destination: 'B'
+    });
 
     const a = lockManager.acquire(ride.rideId, 's1');
     const b = lockManager.acquire(ride.rideId, 's2');
 
     expect(a.acquired).toBe(true);
     expect(b.acquired).toBe(false);
+
   });
 
   test('Sem motoristas disponíveis retorna falha', async () => {
-    const drivers = await driverRegistry.findAvailableDrivers();
+
+    const drivers = await driverRegistry.available();
 
     for (const d of drivers) {
-      await driverService.assignDriver(`ride-${d.id}`);
+      await driverRegistry.setAvailability(d.id, false);
     }
 
-    const ride = rideSaga.createLocal({ passengerId: 'x', origin: 'x', destination: 'y' });
+    const ride = rideSaga.createLocal({
+      passengerId: 'p-x',
+      origin: 'A',
+      destination: 'B'
+    });
 
     const assigned = await driverService.assignDriver(ride.rideId);
 
     expect(assigned).toBeNull();
+
   });
+
 });

@@ -1,10 +1,11 @@
 info:
-  name: atribuicao_motorista
+  name: buscar-corrida-especifica
   type: http
+  seq: 1
 
 http:
   method: GET
-  url: http://localhost:3000/api/drivers/690522d6-6583-4386-b561-aefc64ae5315/ride
+  url: http://localhost:3000/api/rides/0768b227-a16e-4311-b609-82e24fac40a8
   auth: inherit
 
 settings:

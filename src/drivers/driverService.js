@@ -1,42 +1,61 @@
 'use strict';
 
+const pool = require('../db');
 const driverRegistry = require('./driverRegistry');
 
 async function assignDriver(rideId) {
-  const drivers = driverRegistry.findAvailableDrivers();
+  const client = await pool.connect();
 
-  if (!drivers.length) return null;
+  try {
+    await client.query('BEGIN');
 
-  const driver = drivers[0];
+    const { rows } = await client.query(`
+      SELECT *
+      FROM drivers
+      WHERE status = 'AVAILABLE'
+      ORDER BY nome
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    `);
 
-  driverRegistry.markUnavailable(driver.id);
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return null;
+    }
 
-  return {
-    id: driver.id,
-    available: false,
-  };
+    const driver = rows[0];
+
+    await client.query(`
+      UPDATE drivers
+      SET status = 'BUSY'
+      WHERE id = $1
+    `, [driver.id]);
+
+    await client.query('COMMIT');
+
+    return {
+      id: driver.id,
+      rideId,
+    };
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-async function releaseDriver(driverId) {
-  return driverRegistry.markAvailable(driverId);
+async function releaseDriver(id) {
+  return driverRegistry.setAvailability(id, true);
 }
 
-async function listDrivers() {
-  return driverRegistry.findAvailableDrivers();
-}
-
-async function listAvailableDrivers() {
-  return driverRegistry.findAvailableDrivers();
-}
-
-function reset() {
-  driverRegistry.reset();
+async function reset() {
+  return driverRegistry.reset();
 }
 
 module.exports = {
   assignDriver,
   releaseDriver,
-  listDrivers,
-  listAvailableDrivers,
   reset,
 };

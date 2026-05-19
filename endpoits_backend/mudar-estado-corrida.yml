@@ -1,17 +1,16 @@
 info:
-  name: mudar_estado_corrida
+  name: mudar-estado-corrida
   type: http
-  seq: 1
 
 http:
   method: PATCH
-  url: http://localhost:3000/api/rides/78264ade-8f8b-4a9a-8c51-473644d39172/state
+  url: http://localhost:3000/api/rides/0768b227-a16e-4311-b609-82e24fac40a8/state
   body:
     type: json
     data: |-
       {
-        "newState": "in_transit"
-      }
+              "newState": "in_transit"
+            }
   auth: inherit
 
 settings:
