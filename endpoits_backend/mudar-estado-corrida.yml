@@ -1,0 +1,20 @@
+info:
+  name: mudar-estado-corrida
+  type: http
+
+http:
+  method: PATCH
+  url: http://localhost:3000/api/rides/0768b227-a16e-4311-b609-82e24fac40a8/state
+  body:
+    type: json
+    data: |-
+      {
+              "newState": "in_transit"
+            }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

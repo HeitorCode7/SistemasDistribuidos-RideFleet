@@ -1,0 +1,20 @@
+info:
+  name: mudar-disponibilidade-motorista
+  type: http
+
+http:
+  method: PATCH
+  url: http://localhost:3000/api/drivers/690522d6-6583-4386-b561-aefc64ae5315/availability
+  body:
+    type: json
+    data: |2-
+       {
+              "available": true
+            }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

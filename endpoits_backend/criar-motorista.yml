@@ -1,0 +1,22 @@
+info:
+  name: criar-motorista
+  type: http
+
+http:
+  method: POST
+  url: http://localhost:3000/api/drivers
+  body:
+    type: json
+    data: |2-
+       {
+              "id": "d11",
+              "nome": "Gab",
+              "status": "AVAILABLE"
+            }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

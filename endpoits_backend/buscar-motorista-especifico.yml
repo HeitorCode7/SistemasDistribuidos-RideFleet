@@ -1,0 +1,14 @@
+info:
+  name: buscar-motorista-especifico
+  type: http
+
+http:
+  method: GET
+  url: http://localhost:3000/api/drivers/70ed158a-017a-4e47-b11a-e08950a47ee8
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
