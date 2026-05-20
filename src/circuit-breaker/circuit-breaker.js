@@ -1,8 +1,5 @@
 const { metrics } = require('../middleware/metrics');
-<<<<<<< HEAD
 const { structuredLog } = require('../logging/logger');
-=======
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 
 const STATE = {
   CLOSED: 'CLOSED',
@@ -14,8 +11,8 @@ class CircuitBreaker {
   /**
    * @param {string} partnerId
    * @param {object} opts
-   * @param {number} opts.failureThreshold  — falhas antes de abrir
-   * @param {number} opts.recoveryTimeoutMs — ms antes de testar recuperação
+   * @param {number} opts.failureThreshold
+   * @param {number} opts.recoveryTimeoutMs
    */
   constructor(partnerId, opts = {}) {
     this.partnerId = partnerId;
@@ -25,13 +22,11 @@ class CircuitBreaker {
     this.state = STATE.CLOSED;
     this.failureCount = 0;
     this.lastFailureAt = null;
-    this._history = []; // histórico de transições
+    this._history = [];
   }
 
-  /** Executa fn protegida pelo circuit breaker */
   async call(fn) {
     if (this.state === STATE.OPEN) {
-      // Verifica se o timeout de recuperação já passou
       if (Date.now() - this.lastFailureAt >= this.recoveryTimeoutMs) {
         this._transition(STATE.HALF_OPEN);
       } else {
@@ -51,9 +46,9 @@ class CircuitBreaker {
 
   _onSuccess() {
     if (this.state === STATE.HALF_OPEN) {
-      // Teste bem-sucedido: fecha o circuito
       this._transition(STATE.CLOSED);
     }
+
     this.failureCount = 0;
   }
 
@@ -64,7 +59,6 @@ class CircuitBreaker {
     metrics.cbFailures.inc({ partner: this.partnerId });
 
     if (this.state === STATE.HALF_OPEN) {
-      // Teste falhou: volta a abrir
       this._transition(STATE.OPEN);
     } else if (
       this.state === STATE.CLOSED &&
@@ -77,7 +71,10 @@ class CircuitBreaker {
   _transition(newState) {
     const prev = this.state;
     this.state = newState;
-    if (newState === STATE.CLOSED) this.failureCount = 0;
+
+    if (newState === STATE.CLOSED) {
+      this.failureCount = 0;
+    }
 
     this._history.push({
       from: prev,
@@ -86,30 +83,41 @@ class CircuitBreaker {
       failureCount: this.failureCount,
     });
 
-    metrics.cbStateChange.inc({ partner: this.partnerId, state: newState });
-    console.log(`[CB] ${this.partnerId}: ${prev} -> ${newState}`);
-<<<<<<< HEAD
-    
-    structuredLog({
-  nivel: newState === STATE.OPEN ? 'ERROR' : 'INFO',
-  evento: newState === STATE.OPEN
-    ? 'CIRCUIT_BREAKER_OPEN'
-    : 'CIRCUIT_BREAKER_STATE_CHANGED',
+    metrics.cbStateChange.inc({
+      partner: this.partnerId,
+      state: newState,
+    });
 
-  detalhes: {
-    partnerId: this.partnerId,
-    estado_anterior: prev,
-    estado_novo: newState,
-    failureCount: this.failureCount
-  }
-});
-=======
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
+    console.log(`[CB] ${this.partnerId}: ${prev} -> ${newState}`);
+
+    structuredLog({
+      nivel: newState === STATE.OPEN ? 'ERROR' : 'INFO',
+      evento:
+        newState === STATE.OPEN
+          ? 'CIRCUIT_BREAKER_OPEN'
+          : 'CIRCUIT_BREAKER_STATE_CHANGED',
+
+      detalhes: {
+        partnerId: this.partnerId,
+        estado_anterior: prev,
+        estado_novo: newState,
+        failureCount: this.failureCount,
+      },
+    });
   }
 
   isAvailable() {
-    if (this.state === STATE.CLOSED || this.state === STATE.HALF_OPEN) return true;
-    return Date.now() - this.lastFailureAt >= this.recoveryTimeoutMs;
+    if (
+      this.state === STATE.CLOSED ||
+      this.state === STATE.HALF_OPEN
+    ) {
+      return true;
+    }
+
+    return (
+      Date.now() - this.lastFailureAt >=
+      this.recoveryTimeoutMs
+    );
   }
 
   snapshot() {
@@ -123,7 +131,6 @@ class CircuitBreaker {
   }
 }
 
-/** Registry de circuit breakers por parceiro */
 class CircuitBreakerRegistry {
   constructor(opts = {}) {
     this._opts = opts;
@@ -132,23 +139,41 @@ class CircuitBreakerRegistry {
 
   get(partnerId) {
     if (!this._breakers.has(partnerId)) {
-      this._breakers.set(partnerId, new CircuitBreaker(partnerId, this._opts));
+      this._breakers.set(
+        partnerId,
+        new CircuitBreaker(partnerId, this._opts)
+      );
     }
+
     return this._breakers.get(partnerId);
   }
 
   snapshot() {
     const result = {};
+
     for (const [id, cb] of this._breakers.entries()) {
       result[id] = cb.snapshot();
     }
+
     return result;
   }
 }
 
 const registry = new CircuitBreakerRegistry({
-  failureThreshold: parseInt(process.env.CB_FAILURE_THRESHOLD || '3', 10),
-  recoveryTimeoutMs: parseInt(process.env.CB_RECOVERY_TIMEOUT_MS || '10000', 10),
+  failureThreshold: parseInt(
+    process.env.CB_FAILURE_THRESHOLD || '3',
+    10
+  ),
+
+  recoveryTimeoutMs: parseInt(
+    process.env.CB_RECOVERY_TIMEOUT_MS || '10000',
+    10
+  ),
 });
 
-module.exports = { CircuitBreaker, CircuitBreakerRegistry, registry, STATE };
+module.exports = {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+  registry,
+  STATE,
+};
