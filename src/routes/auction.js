@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const { structuredLog } = require('../logging/logger');
+=======
+
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 const express = require('express');
 const router = express.Router();
 const { auctionService } = require('../consensus/auction');
@@ -7,6 +11,7 @@ const config = require('../../config');
 
 router.post('/propose', (req, res) => {
   const { rideId, origin, destination, auctionTs, requesterServiceId } = req.body;
+<<<<<<< HEAD
 
   structuredLog({
     nivel: 'INFO',
@@ -19,6 +24,8 @@ router.post('/propose', (req, res) => {
     }
 });
 
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
   if (!rideId || !auctionTs) {
     return res.status(400).json({ error: 'rideId e auctionTs são obrigatórios' });
   }

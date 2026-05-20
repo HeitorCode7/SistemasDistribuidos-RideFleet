@@ -1,5 +1,8 @@
 const { metrics } = require('../middleware/metrics');
+<<<<<<< HEAD
 const { structuredLog } = require('../logging/logger');
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 
 const STATE = {
   CLOSED: 'CLOSED',
@@ -85,6 +88,7 @@ class CircuitBreaker {
 
     metrics.cbStateChange.inc({ partner: this.partnerId, state: newState });
     console.log(`[CB] ${this.partnerId}: ${prev} -> ${newState}`);
+<<<<<<< HEAD
     
     structuredLog({
   nivel: newState === STATE.OPEN ? 'ERROR' : 'INFO',
@@ -99,6 +103,8 @@ class CircuitBreaker {
     failureCount: this.failureCount
   }
 });
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
   }
 
   isAvailable() {

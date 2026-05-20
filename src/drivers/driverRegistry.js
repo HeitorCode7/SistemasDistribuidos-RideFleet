@@ -69,6 +69,7 @@ const registry = {
   }
 };
 
+<<<<<<< HEAD
 registry.snapshot = async function () {
   const drivers = await this.list();
 
@@ -80,4 +81,6 @@ registry.snapshot = async function () {
   };
 };
 
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 module.exports = registry;

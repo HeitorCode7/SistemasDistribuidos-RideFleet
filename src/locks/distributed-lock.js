@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 const { structuredLog } = require('../logging/logger');
 
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 'use strict';
 
 class DistributedLockManager {
@@ -35,6 +38,7 @@ class DistributedLockManager {
       ts: now,
     });
 
+<<<<<<< HEAD
     structuredLog({
   nivel: 'INFO',
   evento: 'LOCK_ADQUIRIDO',
@@ -45,6 +49,8 @@ class DistributedLockManager {
   }
 });
 
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
     return {
       acquired: true,
       owner,
@@ -58,6 +64,7 @@ class DistributedLockManager {
     if (current.owner !== owner) return false;
 
     this.locks.delete(resource);
+<<<<<<< HEAD
 
     structuredLog({
      nivel: 'INFO',
@@ -70,6 +77,9 @@ class DistributedLockManager {
 });
     return true;
   
+=======
+    return true;
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
   }
 
   reset() {

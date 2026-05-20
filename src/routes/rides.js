@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 const { structuredLog } = require('../logging/logger');
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -46,6 +49,7 @@ router.post('/', async (req, res) => {
     origin,
     destination
   });
+<<<<<<< HEAD
   
   structuredLog({
     nivel: 'INFO',
@@ -62,6 +66,8 @@ router.post('/', async (req, res) => {
         destination
     }
 });
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 
   // ─────────────────────────────────────────
   // Lock distribuído
@@ -106,6 +112,7 @@ router.post('/', async (req, res) => {
     if (activeRides >= 10) {
 
       decision = 'queue';
+<<<<<<< HEAD
     structuredLog({
     nivel: 'WARN',
     evento: 'CORRIDA_ENFILEIRADA',
@@ -119,6 +126,9 @@ router.post('/', async (req, res) => {
         activeRides
     }
 })};
+=======
+    }
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 
     // ─────────────────────────────────────────
     // Fila cheia
@@ -126,6 +136,7 @@ router.post('/', async (req, res) => {
     if (activeRides >= 20) {
 
       decision = 'reject';
+<<<<<<< HEAD
     structuredLog({
     nivel: 'ERROR',
     evento: 'CORRIDA_REJEITADA',
@@ -139,6 +150,9 @@ router.post('/', async (req, res) => {
         motivo: 'sobrecarga'
     }
 })};
+=======
+    }
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 
     // ─────────────────────────────────────────
     // Rejeitar
@@ -222,6 +236,7 @@ router.post('/', async (req, res) => {
 
   } catch (err) {
 
+<<<<<<< HEAD
     structuredLog({
         nivel: 'ERROR',
         evento: 'ERRO_INTERNO',
@@ -233,6 +248,8 @@ router.post('/', async (req, res) => {
         }
     });
     
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
     console.error(
       `[RIDES] Erro ao processar corrida ${ride.rideId}:`,
       err.message
@@ -424,6 +441,7 @@ async function _acceptLocally(ride) {
     }
   );
 
+<<<<<<< HEAD
   structuredLog({
     nivel: 'INFO',
     evento: 'CORRIDA_ACEITA_LOCALMENTE',
@@ -438,6 +456,8 @@ async function _acceptLocally(ride) {
     }
 });
 
+=======
+>>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
   rideSaga.transition(
     ride.rideId,
     RIDE_STATE.CONFIRM
