@@ -48,15 +48,12 @@ const {
   metricsHandler
 } = require('./middleware/metrics');
 
-<<<<<<< HEAD
 const { latencyMiddleware, getLatencyStats } = require('./middleware/latency');
 
 const { computeHealth }    = require('./health/health-service');
 const { getAlertsSnapshot, startAlertLoop } = require('./health/alerts');
 const { registry: cbRegistry } = require('./circuit-breaker/circuit-breaker');
 
-=======
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 const ridesRouter   = require('./routes/rides');
 const auctionRouter = require('./routes/auction');
 const auditRouter   = require('./routes/audit');
@@ -81,11 +78,8 @@ app.use(express.json());
 
 app.use(httpMetricsMiddleware);
 
-<<<<<<< HEAD
 app.use(latencyMiddleware);
 
-=======
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 app.use(express.static('frontend/public'));
 
 app.use('/api/rides',   ridesRouter);
@@ -98,7 +92,6 @@ app.use('/api/drivers', driversRouter(driverRegistry));
 
 app.get('/metrics', metricsHandler);
 
-<<<<<<< HEAD
 app.get('/health', async (req, res) => {
 
   try {
@@ -133,21 +126,6 @@ app.get('/health', async (req, res) => {
       error:     err.message,
     });
   }
-=======
-app.get('/health', (req, res) => {
-
-  res.json({
-    status: 'ok',
-
-    serviceId: config.serviceId,
-
-    ts: getClock(config.serviceId).now(),
-
-    queue: rideQueue.snapshot(),
-
-    drivers: driverRegistry.snapshot(),
-  });
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
 });
 
 const server = http.createServer(app);
@@ -206,7 +184,6 @@ async function start() {
         }
       );
 
-<<<<<<< HEAD
       // ─────────────────────────────────────────────
       // Loop de alertas de saúde
       // ─────────────────────────────────────────────
@@ -218,8 +195,6 @@ async function start() {
         return { queue, drivers, latency, cb };
       });
 
-=======
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
       console.log(
         `RideFleet Service | ID: ${config.serviceId} | Porta: ${config.port}`
       );
