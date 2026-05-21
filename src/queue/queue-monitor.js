@@ -281,3 +281,29 @@ function snapshot() {
 }
 
 module.exports = { start, stop, snapshot };
+
+function startQueueMonitor() {
+  console.log('[QUEUE MONITOR] Monitor iniciado.');
+
+  setInterval(() => {
+    try {
+      const rideQueue = global.rideQueue;
+
+      if (!rideQueue) {
+        console.warn('[QUEUE MONITOR] Fila local ainda não inicializada.');
+        return;
+      }
+
+      const snapshot = rideQueue.snapshot();
+
+      console.log('[QUEUE MONITOR] Snapshot da fila:', snapshot);
+
+    } catch (err) {
+      console.error('[QUEUE MONITOR] Erro:', err.message);
+    }
+  }, 30000);
+}
+
+module.exports = {
+  startQueueMonitor
+};

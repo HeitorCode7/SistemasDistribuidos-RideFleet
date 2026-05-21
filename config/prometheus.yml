@@ -1,28 +1,8 @@
 global:
-  scrape_interval: 5s
+  scrape_interval: 15s
 
 scrape_configs:
-<<<<<<< HEAD
-  - job_name: 'prometheus'
+  - job_name: "ridefleet-api"
+    metrics_path: "/metrics"
     static_configs:
-      - targets: ['prometheus:9090']
-
-  - job_name: 'ridefleet-api'
-    static_configs:
-      - targets: ['api:3000']
-=======
-  - job_name: 'ridefleet-grupo-a'
-    static_configs:
-      - targets: ['grupo-a:3000']
-    metrics_path: /metrics
-
-  - job_name: 'ridefleet-grupo-b'
-    static_configs:
-      - targets: ['grupo-b:3001']
-    metrics_path: /metrics
-
-  - job_name: 'ridefleet-grupo-c'
-    static_configs:
-      - targets: ['grupo-c:3002']
-    metrics_path: /metrics
->>>>>>> ddc3a7e168756d911d3ae9d9d201e64c0b58a594
+      - targets: ["api:3000"]

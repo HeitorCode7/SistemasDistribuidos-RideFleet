@@ -40,6 +40,8 @@ const WebSocket = require('ws');
 const config = require('../config');
 
 const { connectRabbitMQ } = require('./rabbitmq');
+const { startRideConsumer } = require('./queue/ride-consumer');
+const { startQueueMonitor } = require('./queue/queue-monitor');
 
 const { getClock } = require('./logical-clock/lamport-clock');
 
@@ -171,6 +173,10 @@ async function start() {
     // RabbitMQ
     // ─────────────────────────────────────────────
     await connectRabbitMQ();
+
+    await startRideConsumer();
+
+    startQueueMonitor();
 
     // ─────────────────────────────────────────────
     // Start HTTP Server

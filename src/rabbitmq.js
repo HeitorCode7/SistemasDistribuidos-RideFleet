@@ -1,71 +1,30 @@
-'use strict';
+const amqp = require("amqplib");
 
-const amqp = require('amqplib');
-
-let connection;
 let channel;
 
-async function sleep(ms) {
-  return new Promise(resolve => {
-    setTimeout(resolve, ms);
-  });
-}
+const QUEUE_INPUT = "pending_rides";
+const QUEUE_OUTPUT = "core_overflow_rides";
 
 async function connectRabbitMQ() {
+  const connection = await amqp.connect(process.env.RABBITMQ_URL);
+  channel = await connection.createChannel();
 
-  while (!channel) {
+  await channel.assertQueue(QUEUE_INPUT, { durable: true });
+  await channel.assertQueue(QUEUE_OUTPUT, { durable: true });
 
-    try {
-
-      console.log(
-        '[RabbitMQ] Tentando conectar...'
-      );
-
-      connection = await amqp.connect(
-        process.env.RABBITMQ_URL || 'amqp://rabbitmq'
-      );
-
-      channel = await connection.createChannel();
-
-      await channel.assertQueue(
-        'pending_rides',
-        {
-          durable: true
-        }
-      );
-
-      console.log(
-        '[RabbitMQ] Conectado com sucesso'
-      );
-
-    } catch (err) {
-
-      console.error(
-        '[RabbitMQ] Falha ao conectar:',
-        err.message
-      );
-
-      console.log(
-        '[RabbitMQ] Tentando novamente em 5s...'
-      );
-
-      await sleep(5000);
-    }
-  }
+  console.log("RabbitMQ conectado e filas criadas.");
 }
 
 function getChannel() {
-
   if (!channel) {
-    throw new Error(
-      'RabbitMQ channel não inicializado'
-    );
+    throw new Error("Canal RabbitMQ não inicializado");
   }
-
   return channel;
 }
 
 module.exports = {
   connectRabbitMQ,
-  getChannel
+  getChannel,
+  QUEUE_INPUT,
+  QUEUE_OUTPUT,
 };

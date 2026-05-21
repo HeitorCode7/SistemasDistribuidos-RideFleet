@@ -11,7 +11,7 @@ const { registry: cbRegistry }  = require('../circuit-breaker/circuit-breaker');
 const { getClock }              = require('../logical-clock/lamport-clock');
 const { metrics }               = require('../middleware/metrics');
 const { structuredLog }         = require('../logging/logger');
-const { getChannel }            = require('../rabbitmq');
+const { getChannel, QUEUE_INPUT } = require('../rabbitmq');
 const config                    = require('../../config');
 
 
@@ -78,59 +78,54 @@ router.post('/', async (req, res) => {
     }
 
     if (activeRides >= 10) {
-      // ── Enfileirar no RabbitMQ ─────────────────────────────────────
-      try {
-        const channel = getChannel();
-        channel.sendToQueue(
-          'pending_rides',
-          Buffer.from(JSON.stringify(ride)),
-          { persistent: true }
-        );
-        console.log('[RABBITMQ] Corrida enviada para fila:', ride.rideId);
-      } catch (rabbitErr) {
-        console.error('[RABBITMQ] Erro ao publicar:', rabbitErr.message);
-        return res.status(500).json({ error: 'Falha ao publicar na fila' });
-      }
+  try {
+    const channel = getChannel();
 
-      metrics.ridesQueued.inc();
+    const queuedRide = {
+      ...ride,
+      state: 'QUEUED',
+      queuedAt: new Date().toISOString(),
+      retries: 0,
+      sourceServiceId: config.serviceId,
+      reason: 'congestionamento',
+    };
 
-      structuredLog({
-        nivel:           'WARN',
-        evento:          'CORRIDA_ENFILEIRADA',
-        corrida_id:      ride.rideId,
-        estado_anterior: 'REQUEST',
-        estado_novo:     'QUEUED',
-        detalhes:        { activeRides },
-      });
+   channel.sendToQueue(
+  QUEUE_INPUT,
+  Buffer.from(JSON.stringify(queuedRide)),
+  { persistent: true }
+  );
 
-      return res.status(202).json({
-        message: 'Corrida enfileirada por congestionamento',
-        ride,
-      });
-    }
-
-    // ── Processar localmente ───────────────────────────────────────────
-    await _acceptLocally(ride);
-    metrics.ridesLocal.inc();
-
-    return res.status(201).json(rideSaga.get(ride.rideId));
-
-  } catch (err) {
+    metrics.ridesQueued.inc();
 
     structuredLog({
-      nivel:      'ERROR',
-      evento:     'ERRO_INTERNO',
-      corrida_id: ride.rideId,
-      detalhes:   { erro: err.message },
+      nivel:           'WARN',
+      evento:          'CORRIDA_ENFILEIRADA',
+      corrida_id:      ride.rideId,
+      estado_anterior: 'REQUEST',
+      estado_novo:     'QUEUED',
+      detalhes:        { activeRides },
     });
 
-    console.error(`[RIDES] Erro ao processar corrida ${ride.rideId}:`, err.message);
-    rideSaga.compensate(ride.rideId, err.message);
+    console.log('[RABBITMQ] Corrida enviada para fila:', ride.rideId);
+
+    return res.status(202).json({
+      message: 'Corrida enfileirada por congestionamento',
+      queue: 'pending_rides',
+      ride: queuedRide,
+    });
+
+  } catch (rabbitErr) {
+    console.error('[RABBITMQ] Erro ao publicar:', rabbitErr.message);
+
+    rideSaga.compensate(ride.rideId, 'rabbitmq_publish_failed');
 
     return res.status(500).json({
-      error:  'Falha ao processar corrida',
-      detail: err.message,
+      error: 'Falha ao publicar corrida na fila',
+      detail: rabbitErr.message,
     });
+  }
+}
 
   } finally {
     lockManager.release(ride.rideId, config.serviceId);
