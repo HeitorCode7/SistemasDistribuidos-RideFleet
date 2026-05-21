@@ -1,14 +1,12 @@
 services:
 
-  api:
+  api1:
     build: .
-    container_name: ridefleet-api
-
-    ports:
-      - "3000:3000"
+    container_name: ridefleet-api-1
 
     environment:
       PORT: 3000
+      SERVICE_ID: grupo-a-api1
 
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
 
@@ -21,18 +19,56 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
       rabbitmq:
         condition: service_started
 
     restart: always
 
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q '\"status\"' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+
+
+  api2:
+    build: .
+    container_name: ridefleet-api-2
+
+    environment:
+      PORT: 3000
+      SERVICE_ID: grupo-a-api2
+
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ridefleet
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+
+    restart: always
+
+
+  loadbalancer:
+    image: nginx:latest
+    container_name: ridefleet-loadbalancer
+
+    ports:
+      - "3000:80"
+
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+
+    depends_on:
+      api1:
+        condition: service_started
+      api2:
+        condition: service_started
+
+    restart: always
+
 
   postgres:
     image: postgres:16
@@ -57,6 +93,7 @@ services:
       timeout: 5s
       retries: 10
 
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: ridefleet-rabbitmq
@@ -67,17 +104,19 @@ services:
 
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5  
+      retries: 5
 
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
 
     restart: always
+
 
   prometheus:
     image: prom/prometheus
@@ -91,6 +130,7 @@ services:
 
     restart: always
 
+
   grafana:
     image: grafana/grafana
     container_name: ridefleet-grafana
@@ -100,6 +140,7 @@ services:
 
     restart: always
 
+
 volumes:
-  postgres_data: 
+  postgres_data:
   rabbitmq_data:
