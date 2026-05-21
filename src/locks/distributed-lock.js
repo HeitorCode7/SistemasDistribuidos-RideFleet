@@ -38,10 +38,7 @@ class DistributedLockManager {
     structuredLog({
       nivel: 'INFO',
       evento: 'LOCK_ADQUIRIDO',
-      detalhes: {
-        resource,
-        owner
-      }
+      detalhes: { resource, owner },
     });
 
     return {
@@ -61,13 +58,34 @@ class DistributedLockManager {
     structuredLog({
       nivel: 'INFO',
       evento: 'LOCK_LIBERADO',
-      detalhes: {
-        resource,
-        owner
-      }
+      detalhes: { resource, owner },
     });
 
     return true;
+  }
+
+  /**
+   * Retorna snapshot dos locks ativos para observabilidade.
+   */
+  snapshot() {
+    const now = Date.now();
+    const items = [];
+
+    for (const [resource, lock] of this.locks.entries()) {
+      const age = now - lock.ts;
+      const expired = age > this.ttlMs;
+
+      items.push({
+        resource,
+        owner: lock.owner,
+        acquiredAt: lock.ts,
+        ageMs: age,
+        expired,
+        ttlMs: this.ttlMs,
+      });
+    }
+
+    return items;
   }
 
   reset() {
@@ -75,4 +93,8 @@ class DistributedLockManager {
   }
 }
 
-module.exports = { DistributedLockManager };
+// ── Singleton compartilhado entre rides.js e audit.js ─────────────────────────
+const config = require('../../config');
+const lockManager = new DistributedLockManager(config.lock?.ttlMs || 5000);
+
+module.exports = { DistributedLockManager, lockManager };

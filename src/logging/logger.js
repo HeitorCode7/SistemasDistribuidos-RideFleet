@@ -1,4 +1,6 @@
-const lamportClock = require('../logical-clock/lamport-clock');
+'use strict';
+
+const { getClock } = require('../logical-clock/lamport-clock');
 
 function structuredLog({
     nivel = 'INFO',
@@ -9,12 +11,14 @@ function structuredLog({
     estado_novo = null,
     detalhes = {}
 }) {
-
     let logicalTimestamp = null;
 
     try {
-        logicalTimestamp = lamportClock.tick();
-    } catch {
+        logicalTimestamp = getClock(servico_origem).tick('log.entry', {
+            evento,
+            corrida_id,
+        }).ts;
+    } catch (_) {
         logicalTimestamp = null;
     }
 
