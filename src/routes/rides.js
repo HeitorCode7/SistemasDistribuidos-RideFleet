@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
     .getAll()
     .filter(r => r.state !== 'complete' && r.state !== 'cancelled').length;
 
-  if (activeRides >= 10) {
+  if (activeRides > 10) {
     try {
       const channel = getChannel();
 
