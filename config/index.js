@@ -1,5 +1,4 @@
 // config/index.js
-// Carrega e valida configuração do ambiente
 
 function parsePartners(raw = '') {
   if (!raw.trim()) return [];
@@ -27,9 +26,16 @@ const config = {
     ttlMs: parseInt(process.env.LOCK_TTL_MS || '5000', 10),
   },
 
-  // ── Novas chaves ────────────────────────────────────────────
-  coreServiceUrl: process.env.CORE_SERVICE_URL || 'http://localhost:4000',
-  queueMaxSize:   parseInt(process.env.QUEUE_MAX_SIZE || '100', 10),
+  queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '100', 10),
+
+  // Integração com o Core
+  coreApiKey: process.env.CORE_API_KEY || '',
+  serviceUrl: process.env.SERVICE_URL || 'http://localhost:3001',
+  contactEmail: process.env.CONTACT_EMAIL || 'gabriel.a.santos@ufv.br',
+  coreAuctionTimeoutSeconds: parseInt(
+    process.env.CORE_AUCTION_TIMEOUT_SECONDS || '10',
+    10
+  ),
 };
 
 module.exports = config;

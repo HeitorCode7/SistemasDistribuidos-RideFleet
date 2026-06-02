@@ -2,19 +2,25 @@ services:
 
   api1:
     build: .
-    container_name: ridefleet-api-1
+    container_name: grupo-a-api-1
 
     environment:
       PORT: 3000
-      SERVICE_ID: grupo-a-api1
+      SERVICE_ID: 16
 
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://guest:guest@grupo-a-rabbitmq:5672
 
-      DB_HOST: postgres
+      DB_HOST: grupo-a-postgres
       DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: ridefleet
+
+      CORE_SERVICE_URL: http://host.docker.internal:8080
+      CORE_API_KEY: ${CORE_API_KEY}
+      SERVICE_URL: http://host.docker.internal:3001
+      CONTACT_EMAIL: gabriel.a.santos@ufv.br
+      CORE_AUCTION_TIMEOUT_SECONDS: 10
 
     depends_on:
       postgres:
@@ -25,22 +31,27 @@ services:
     restart: always
 
 
-
   api2:
     build: .
-    container_name: ridefleet-api-2
+    container_name: grupo-a-api-2
 
     environment:
       PORT: 3000
-      SERVICE_ID: grupo-a-api2
+      SERVICE_ID: 16
 
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://guest:guest@grupo-a-rabbitmq:5672
 
-      DB_HOST: postgres
+      DB_HOST: grupo-a-postgres
       DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: ridefleet
+
+      CORE_SERVICE_URL: http://host.docker.internal:8080
+      CORE_API_KEY: ${CORE_API_KEY}
+      SERVICE_URL: http://host.docker.internal:3001
+      CONTACT_EMAIL: gabriel.a.santos@ufv.br
+      CORE_AUCTION_TIMEOUT_SECONDS: 10
 
     depends_on:
       postgres:
@@ -53,10 +64,10 @@ services:
 
   loadbalancer:
     image: nginx:latest
-    container_name: ridefleet-loadbalancer
+    container_name: grupo-a-loadbalancer
 
     ports:
-      - "3000:80"
+      - "3001:80"
 
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -72,7 +83,7 @@ services:
 
   postgres:
     image: postgres:16
-    container_name: ridefleet-postgres
+    container_name: grupo-a-postgres
 
     environment:
       POSTGRES_USER: postgres
@@ -80,10 +91,10 @@ services:
       POSTGRES_DB: ridefleet
 
     ports:
-      - "5432:5432"
+      - "5433:5432"
 
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - grupo_a_postgres_data:/var/lib/postgresql/data
 
     restart: on-failure
 
@@ -96,14 +107,14 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: ridefleet-rabbitmq
+    container_name: grupo-a-rabbitmq
 
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5673:5672"
+      - "15673:15672"
 
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - grupo_a_rabbitmq_data:/var/lib/rabbitmq
 
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
@@ -120,10 +131,10 @@ services:
 
   prometheus:
     image: prom/prometheus
-    container_name: ridefleet-prometheus
+    container_name: grupo-a-prometheus
 
     ports:
-      - "9090:9090"
+      - "9091:9090"
 
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
@@ -133,14 +144,14 @@ services:
 
   grafana:
     image: grafana/grafana
-    container_name: ridefleet-grafana
+    container_name: grupo-a-grafana
 
     ports:
-      - "3010:3000"
+      - "3011:3000"
 
     restart: always
 
 
 volumes:
-  postgres_data:
-  rabbitmq_data:
+  grupo_a_postgres_data:
+  grupo_a_rabbitmq_data:

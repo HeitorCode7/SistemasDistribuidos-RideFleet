@@ -12,6 +12,8 @@ const { metrics } = require('../middleware/metrics');
 const { structuredLog } = require('../logging/logger');
 const { getChannel, QUEUE_INPUT } = require('../rabbitmq');
 const config = require('../../config');
+const { coreClient } = require('../core/core-client');
+
 
 // ─────────────────────────────────────────────
 // Criar corrida
@@ -44,50 +46,51 @@ router.post('/', async (req, res) => {
     .getAll()
     .filter(r => r.state !== 'complete' && r.state !== 'cancelled').length;
 
-  if (activeRides > 10) {
-    try {
-      const channel = getChannel();
+  if (activeRides >= 1) {
 
-      const queuedRide = {
-        ...ride,
-        state: 'QUEUED',
-        queuedAt: new Date().toISOString(),
-        retries: 0,
-        sourceServiceId: config.serviceId,
-        reason: 'congestionamento',
-      };
+  try {
 
-      channel.sendToQueue(
-        QUEUE_INPUT,
-        Buffer.from(JSON.stringify(queuedRide)),
-        { persistent: true }
-      );
+    const delegacao = await coreClient.solicitarDelegacao({
+      passengerId,
+      origin,
+      destination,
+      logicalTimestamp: Date.now()
+    });
 
-      metrics.ridesQueued.inc();
+    metrics.ridesQueued.inc();
 
-      structuredLog({
-        nivel: 'WARN',
-        evento: 'CORRIDA_ENFILEIRADA',
-        corrida_id: ride.rideId,
-        estado_anterior: 'REQUEST',
-        estado_novo: 'QUEUED',
-        detalhes: { activeRides },
-      });
-
-      return res.status(202).json({
-        message: 'Corrida enfileirada por congestionamento',
+    structuredLog({
+      nivel: 'WARN',
+      evento: 'CORRIDA_DELEGADA_CORE',
+      corrida_id: ride.rideId,
+      estado_anterior: 'REQUEST',
+      estado_novo: 'DELEGATED',
+      detalhes: {
         activeRides,
-        queue: QUEUE_INPUT,
-        ride: queuedRide,
-      });
+        rideUuid: delegacao.rideUuid
+      },
+    });
 
-    } catch (err) {
-      return res.status(500).json({
-        error: 'Falha ao publicar corrida na fila',
-        detail: err.message,
-      });
-    }
+    return res.status(202).json({
+      message: 'Corrida delegada ao Core por congestionamento',
+      localRideId: ride.rideId,
+      core: delegacao
+    });
+
+  } catch (err) {
+
+    console.error('[CORE] Falha ao delegar');
+    console.error('MESSAGE:', err.message);
+    console.error('STATUS:', err.response?.status);
+    console.error('DATA:', err.response?.data);
+    console.error('FULL ERROR:', err);
+
+    return res.status(502).json({
+      error: 'Falha ao delegar corrida ao Core',
+      detail: err.response?.data || err.message
+    });
   }
+}
 
   _acceptLocally(ride);
   metrics.ridesLocal.inc();
@@ -97,6 +100,136 @@ router.post('/', async (req, res) => {
     activeRides,
     ride: rideSaga.get(ride.rideId),
   });
+});
+
+router.get('/core/health', async (req, res) => {
+  try {
+    const result = await coreClient.health();
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao consultar health do Core',
+      detail: err.message,
+    });
+  }
+});
+
+router.post('/core/incoming', async (req, res) => {
+
+  try {
+
+    const delegatedRide = req.body;
+
+    console.log('[CORE] Corrida recebida:', delegatedRide);
+
+    const ride = rideSaga.createDelegated({
+      rideId: delegatedRide.rideUuid,
+      passengerId: delegatedRide.passengerId,
+      origin: delegatedRide.origin,
+      destination: delegatedRide.destination,
+      ownerServiceId: delegatedRide.originServiceId || 'core',
+      lamportTs: delegatedRide.logicalTimestamp || Date.now()
+    });
+
+    _acceptLocally(ride);
+
+    metrics.ridesReceivedFromCore.inc();
+
+    return res.status(202).json({
+      accepted: true,
+      serviceId: config.serviceId,
+      ride: rideSaga.get(ride.rideId),
+      message: 'Corrida delegada recebida e aceita'
+    });
+
+  } catch (err) {
+
+    console.error('[CORE INCOMING ERROR]', err);
+
+    return res.status(500).json({
+      error: 'Falha ao receber corrida delegada',
+      detail: err.message
+    });
+  }
+});
+
+router.post('/core/register', async (req, res) => {
+  try {
+    const result = await coreClient.registrarGrupo();
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao registrar grupo no Core',
+      detail: err.response?.data || err.message,
+    });
+  }
+});
+
+router.post('/core/delegar', async (req, res) => {
+  try {
+    const result = await coreClient.solicitarDelegacao(req.body);
+    res.status(202).json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao solicitar delegação ao Core',
+      detail: err.response?.data || err.message,
+    });
+  }
+});
+
+router.get('/core/:rideUuid/proposals', async (req, res) => {
+  try {
+    const result = await coreClient.consultarPropostas(req.params.rideUuid);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao consultar propostas no Core',
+      detail: err.response?.data || err.message,
+    });
+  }
+});
+
+router.get('/core/:rideUuid/status', async (req, res) => {
+  try {
+    const result = await coreClient.consultarStatus(req.params.rideUuid);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao consultar status no Core',
+      detail: err.response?.data || err.message,
+    });
+  }
+});
+
+router.patch('/core/:rideUuid/status', async (req, res) => {
+  try {
+    const { newState, logicalTimestamp } = req.body;
+
+    const result = await coreClient.atualizarStatus(
+      req.params.rideUuid,
+      newState,
+      logicalTimestamp || Date.now()
+    );
+
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao atualizar status no Core',
+      detail: err.response?.data || err.message,
+    });
+  }
+});
+
+router.get('/core/:rideUuid/audit', async (req, res) => {
+  try {
+    const result = await coreClient.consultarAuditLog(req.params.rideUuid);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({
+      error: 'Falha ao consultar audit log no Core',
+      detail: err.response?.data || err.message,
+    });
+  }
 });
 
 // ─────────────────────────────────────────────

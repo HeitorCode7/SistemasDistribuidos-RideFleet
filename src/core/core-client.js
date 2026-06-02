@@ -1,172 +1,185 @@
 'use strict';
 
-/**
- * CoreClient
- *
- * HTTP client for delegating rides to the Core service.
- * Includes a three-state circuit breaker (CLOSED → OPEN → HALF_OPEN).
- *
- * Expected by: overflow-policy/policy.js · queue.test.js · integration.test.js
- */
+const axios = require('axios');
+const config = require('../../config');
 
-const STATES = { CLOSED: 'CLOSED', OPEN: 'OPEN', HALF_OPEN: 'HALF_OPEN' };
+const CORE_URL = (config.coreServiceUrl || 'http://localhost:8080').replace(/\/$/, '');
+const API_PREFIX = '/api/v1';
 
-class CoreClient {
-  /**
-   * @param {object} opts
-   * @param {string}  opts.baseUrl            Core service base URL
-   * @param {number}  [opts.timeout=5000]     Request timeout in ms
-   * @param {number}  [opts.failureThreshold=5]  Failures before opening
-   * @param {number}  [opts.successThreshold=2]  Successes to close from HALF_OPEN
-   * @param {number}  [opts.openDuration=30000]  How long to stay OPEN (ms)
-   * @param {Function} [opts.fetchFn]         Injected fetch (for testing)
-   */
-  constructor(opts = {}) {
-    this._baseUrl = (opts.baseUrl || process.env.CORE_SERVICE_URL || 'http://localhost:4000').replace(/\/$/, '');
-    this._timeout = opts.timeout ?? 5000;
-    this._failureThreshold = opts.failureThreshold ?? 5;
-    this._successThreshold = opts.successThreshold ?? 2;
-    this._openDuration = opts.openDuration ?? 30_000;
-    this._fetch = opts.fetchFn || fetch;
+function headers() {
+  return {
+    'Content-Type': 'application/json',
+    'X-API-Key': config.coreApiKey,
+  };
+}
 
-    // Circuit breaker state
-    this._state = STATES.CLOSED;
-    this._failureCount = 0;
-    this._successCount = 0;
-    this._openedAt = null;
-  }
-
-  // ─── Public API ──────────────────────────────────────────────────────────
-
-  /**
-   * Check whether the Core service is reachable and the circuit is closed.
-   * Returns false immediately when the circuit is OPEN (and not due for probe).
-   * @returns {Promise<boolean>}
-   */
-  async isAvailable() {
-    if (this._isCircuitOpen()) return false;
-
-    try {
-      const res = await this._request('GET', '/health');
-      this._onSuccess();
-      return res.ok;
-    } catch {
-      this._onFailure();
-      return false;
-    }
-  }
-
-  /**
-   * Delegate a ride to the Core service.
-   * @param {{ id: string, origin: string, destination: string, [key: string]: any }} ride
-   * @returns {Promise<{ success: boolean, coreRideId?: string, error?: string }>}
-   */
-  async delegateRide(ride) {
-    if (this._isCircuitOpen()) {
-      return { success: false, error: 'Circuit open – Core service unavailable' };
-    }
-
-    try {
-      const res = await this._request('POST', '/rides', ride);
-      const body = await res.json();
-
-      if (!res.ok) {
-        this._onFailure();
-        return { success: false, error: body.message || `HTTP ${res.status}` };
-      }
-
-      this._onSuccess();
-      return { success: true, coreRideId: body.id ?? body.rideId };
-    } catch (err) {
-      this._onFailure();
-      return { success: false, error: err.message };
-    }
-  }
-
-  /**
-   * Return an immutable snapshot of the circuit breaker state.
-   * @returns {{ state: string, failureCount: number, successCount: number, openedAt: string|null }}
-   */
-  cbSnapshot() {
+function normalizarLocal(local, fallback = {}) {
+  if (typeof local === 'object' && local !== null) {
     return {
-      state: this._state,
-      failureCount: this._failureCount,
-      successCount: this._successCount,
-      openedAt: this._openedAt,
+      lat: Number(local.lat ?? fallback.lat ?? -20.7546),
+      lng: Number(local.lng ?? fallback.lng ?? -42.8825),
+      street: local.street ?? local.rua ?? fallback.street ?? 'Av. P.H. Rolfs',
+      number: local.number ?? local.numero ?? fallback.number ?? 'S/N',
+      city: local.city ?? local.cidade ?? fallback.city ?? 'Viçosa',
     };
   }
 
-  // ─── Circuit Breaker Internals ───────────────────────────────────────────
+  return {
+    lat: fallback.lat ?? -20.7546,
+    lng: fallback.lng ?? -42.8825,
+    street: String(local || fallback.street || 'Av. P.H. Rolfs'),
+    number: fallback.number ?? 'S/N',
+    city: fallback.city ?? 'Viçosa',
+  };
+}
 
-  _isCircuitOpen() {
-    if (this._state === STATES.OPEN) {
-      const elapsed = Date.now() - this._openedAt;
-      if (elapsed >= this._openDuration) {
-        // Transition to HALF_OPEN to probe the service
-        this._state = STATES.HALF_OPEN;
-        this._successCount = 0;
-        return false; // allow probe
+class CoreClient {
+  async health() {
+  try {
+
+    console.log('CORE_URL =', CORE_URL);
+    console.log('URL FINAL =', `${CORE_URL}${API_PREFIX}/health`);
+
+    const response = await axios.get(
+      `${CORE_URL}${API_PREFIX}/health`,
+      {
+        timeout: 5000,
       }
-      return true; // still open
-    }
-    return false;
-  }
+    );
 
-  _onSuccess() {
-    this._failureCount = 0;
+    console.log('CORE RESPONSE =', response.data);
 
-    if (this._state === STATES.HALF_OPEN) {
-      this._successCount += 1;
-      if (this._successCount >= this._successThreshold) {
-        this._state = STATES.CLOSED;
-        this._successCount = 0;
-        this._openedAt = null;
-      }
-    }
-  }
+    return response.data;
 
-  _onFailure() {
-    this._failureCount += 1;
-    this._successCount = 0;
+  } catch (err) {
 
-    if (
-      this._state === STATES.CLOSED &&
-      this._failureCount >= this._failureThreshold
-    ) {
-      this._trip();
-    } else if (this._state === STATES.HALF_OPEN) {
-      // Probe failed — back to open
-      this._trip();
-    }
-  }
+    console.error('CORE HEALTH ERROR');
+    console.error('MESSAGE:', err.message);
+    console.error('CODE:', err.code);
+    console.error('STATUS:', err.response?.status);
+    console.error('DATA:', err.response?.data);
 
-  _trip() {
-    this._state = STATES.OPEN;
-    this._openedAt = new Date().toISOString();
-  }
-
-  // ─── HTTP helper ─────────────────────────────────────────────────────────
-
-  async _request(method, path, body) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this._timeout);
-
-    try {
-      const opts = {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-      };
-      if (body) opts.body = JSON.stringify(body);
-
-      return await this._fetch(`${this._baseUrl}${path}`, opts);
-    } finally {
-      clearTimeout(timer);
-    }
+    throw err;
   }
 }
 
-CoreClient.STATES = STATES;
+  async registrarGrupo() {
+    const payload = {
+      groupId: config.serviceId,
+      groupName: `Grupo A - SIN142`,
+      serviceUrl: config.serviceUrl,
+      contactEmail: config.contactEmail,
+    };
+
+    const { data } = await axios.post(
+      `${CORE_URL}${API_PREFIX}/groups/register`,
+      payload,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000,
+      }
+    );
+
+    return data;
+  }
+
+  async solicitarDelegacao(ride) {
+    const payload = {
+  originServiceId: '16',
+  passengerId: ride.passengerId || 'p1',
+  origin: {
+    lat: Number(ride.origin?.lat ?? -20.75),
+    lng: Number(ride.origin?.lng ?? -42.88),
+    street: ride.origin?.street || 'Origem',
+    number: ride.origin?.number || '1',
+    city: ride.origin?.city || 'Vicosa',
+  },
+  destination: {
+    lat: Number(ride.destination?.lat ?? -20.76),
+    lng: Number(ride.destination?.lng ?? -42.89),
+    street: ride.destination?.street || 'Destino',
+    number: ride.destination?.number || '2',
+    city: ride.destination?.city || 'Vicosa',
+  },
+  logicalTimestamp: ride.logicalTimestamp || 123,
+  auctionTimeoutSeconds: 10,
+};
+
+    const { data } = await axios.post(
+      `${CORE_URL}${API_PREFIX}/rides`,
+      payload,
+      {
+        headers: headers(),
+        timeout: 15000,
+      }
+    );
+
+    return data;
+  }
+
+  async consultarPropostas(rideUuid) {
+    const { data } = await axios.get(
+      `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/proposals`,
+      {
+        headers: headers(),
+        timeout: 10000,
+      }
+    );
+
+    return data;
+  }
+
+  async consultarStatus(rideUuid) {
+    const { data } = await axios.get(
+      `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/status`,
+      {
+        headers: headers(),
+        timeout: 10000,
+      }
+    );
+
+    return data;
+  }
+
+  async atualizarStatus(rideUuid, newState, logicalTimestamp = Date.now()) {
+    const payload = {
+      newState,
+      serviceId: config.serviceId,
+      logicalTimestamp,
+    };
+
+    const { data } = await axios.patch(
+      `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/status`,
+      payload,
+      {
+        headers: headers(),
+        timeout: 10000,
+      }
+    );
+
+    return data;
+  }
+
+  async confirmarMandato(rideUuid, logicalTimestamp = Date.now()) {
+    return this.atualizarStatus(rideUuid, 'confirm', logicalTimestamp);
+  }
+
+  async consultarAuditLog(rideUuid) {
+    const { data } = await axios.get(
+      `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/audit`,
+      {
+        headers: headers(),
+        timeout: 10000,
+      }
+    );
+
+    return data;
+  }
+}
 
 const coreClient = new CoreClient();
-module.exports = { CoreClient, coreClient };
+
+module.exports = {
+  CoreClient,
+  coreClient,
+};
