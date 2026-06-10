@@ -38,27 +38,95 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
   let lockManager;
   let coreClient;
 
- beforeEach(async () => {
+  beforeEach(async () => {
 
-  const sagaModule = require('../saga/ride-saga');
-  rideSaga = sagaModule.rideSaga;
-  RIDE_STATE = sagaModule.RIDE_STATE;
+    jest.resetModules();
 
-  const driverModule = require('../drivers/driverService');
-  driverService = driverModule;
+    const sagaModule = require('../saga/ride-saga');
+    rideSaga = sagaModule.rideSaga;
+    RIDE_STATE = sagaModule.RIDE_STATE;
 
-  const registryModule = require('../drivers/driverRegistry');
-  driverRegistry = registryModule;
+    const driverModule = require('../drivers/driverService');
+    driverService = driverModule;
 
-  await driverService.reset();
-  await driverRegistry.reset();
+    const registryModule = require('../drivers/driverRegistry');
+    driverRegistry = registryModule;
 
-  const { DistributedLockManager } = require('../locks/distributed-lock');
-  lockManager = new DistributedLockManager(2000);
+    await driverService.reset();
 
-  const coreModule = require('../core/core-client');
-  coreClient = coreModule.coreClient;
-});
+    if (driverRegistry.reset) {
+      await driverRegistry.reset();
+    }
+
+    // recria motoristas após reset
+    if (driverRegistry.register) {
+
+      await driverRegistry.register({
+        id: 'driver-1',
+        name: 'João',
+        available: true,
+        online: true,
+      });
+
+      await driverRegistry.register({
+        id: 'driver-2',
+        name: 'Maria',
+        available: true,
+        online: true,
+      });
+
+      await driverRegistry.register({
+        id: 'driver-3',
+        name: 'Carlos',
+        available: true,
+        online: true,
+      });
+
+    } else if (driverRegistry.addDriver) {
+
+      await driverRegistry.addDriver({
+        id: 'driver-1',
+        name: 'João',
+        available: true,
+        online: true,
+      });
+
+      await driverRegistry.addDriver({
+        id: 'driver-2',
+        name: 'Maria',
+        available: true,
+        online: true,
+      });
+
+      await driverRegistry.addDriver({
+        id: 'driver-3',
+        name: 'Carlos',
+        available: true,
+        online: true,
+      });
+
+    }
+
+    const { DistributedLockManager } = require('../locks/distributed-lock');
+
+    lockManager = new DistributedLockManager(2000);
+
+    const coreModule = require('../core/core-client');
+    coreClient = coreModule.coreClient;
+
+  });
+
+  afterEach(() => {
+
+    if (lockManager?.cleanup) {
+      lockManager.cleanup();
+    }
+
+    if (lockManager?.stop) {
+      lockManager.stop();
+    }
+
+  });
 
   test('Fluxo LOCAL completo: request → match → confirm → in_transit → complete', async () => {
 
@@ -77,7 +145,9 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
     });
 
     rideSaga.transition(ride.rideId, RIDE_STATE.CONFIRM);
+
     rideSaga.transition(ride.rideId, RIDE_STATE.IN_TRANSIT);
+
     rideSaga.transition(ride.rideId, RIDE_STATE.COMPLETE);
 
     expect(

@@ -29,9 +29,10 @@ const config = {
   queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '100', 10),
 
   // Integração com o Core
-  coreApiKey: process.env.CORE_API_KEY || '',
-  serviceUrl: process.env.SERVICE_URL || 'http://localhost:3001',
-  contactEmail: process.env.CONTACT_EMAIL || 'gabriel.a.santos@ufv.br',
+  coreApiKey:    process.env.CORE_API_KEY    || '',
+  coreServiceUrl: process.env.CORE_SERVICE_URL || 'http://localhost:8080',
+  serviceUrl:    process.env.SERVICE_URL     || 'http://localhost:3000',
+  contactEmail:  process.env.CONTACT_EMAIL   || 'gabriel.a.santos@ufv.br',
   coreAuctionTimeoutSeconds: parseInt(
     process.env.CORE_AUCTION_TIMEOUT_SECONDS || '10',
     10

@@ -1,6 +1,7 @@
 info:
   name: criar-corrida
   type: http
+  seq: 1
 
 http:
   method: POST

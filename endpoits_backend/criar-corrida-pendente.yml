@@ -1,6 +1,7 @@
 info:
   name: criar-corrida-pendente
   type: http
+  seq: 1
 
 http:
   method: POST

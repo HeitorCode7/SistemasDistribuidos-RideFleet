@@ -14,6 +14,8 @@ const { getChannel, QUEUE_INPUT } = require('../rabbitmq');
 const config = require('../../config');
 const { coreClient } = require('../core/core-client');
 
+// Tempo entre transições de estado (ms) — perceptível na UI
+const STEP_MS = parseInt(process.env.QUEUE_STEP_MS || '9000', 10);
 
 // ─────────────────────────────────────────────
 // Criar corrida
@@ -27,11 +29,7 @@ router.post('/', async (req, res) => {
     });
   }
 
-  const ride = rideSaga.createLocal({
-    passengerId,
-    origin,
-    destination,
-  });
+  const ride = rideSaga.createLocal({ passengerId, origin, destination });
 
   structuredLog({
     nivel: 'INFO',
@@ -46,52 +44,67 @@ router.post('/', async (req, res) => {
     .getAll()
     .filter(r => r.state !== 'complete' && r.state !== 'cancelled').length;
 
-  if (activeRides >= 1) {
+  // ── Congestionamento: tenta Core, cai na fila local se falhar ─────────────
+  if (activeRides >= config.maxLocalRides) {
 
-  try {
+    try {
+      const delegacao = await coreClient.solicitarDelegacao({
+        passengerId, origin, destination,
+        logicalTimestamp: Date.now(),
+      });
 
-    const delegacao = await coreClient.solicitarDelegacao({
-      passengerId,
-      origin,
-      destination,
-      logicalTimestamp: Date.now()
-    });
+      metrics.ridesQueued.inc();
+
+      structuredLog({
+        nivel: 'WARN',
+        evento: 'CORRIDA_DELEGADA_CORE',
+        corrida_id: ride.rideId,
+        detalhes: { activeRides, rideUuid: delegacao.rideUuid },
+      });
+
+      return res.status(202).json({
+        message: 'Corrida delegada ao Core por congestionamento',
+        localRideId: ride.rideId,
+        core: delegacao,
+      });
+
+    } catch (coreErr) {
+      console.warn(`[RIDES] Core indisponível (${coreErr.response?.status ?? coreErr.code ?? coreErr.message}), enfileirando localmente`);
+    }
+
+    // Fallback: fila local
+    const rideQueue = global.rideQueue;
+    if (!rideQueue) {
+      return res.status(503).json({ error: 'Serviço congestionado e fila local não disponível' });
+    }
+
+    const result = rideQueue.enqueue({
+      rideId:      ride.rideId,
+      passengerId: ride.passengerId,
+      origin:      ride.origin,
+      destination: ride.destination,
+      ownerService: config.serviceId,
+    }, 'core_unavailable');
+
+    if (!result.queued) {
+      return res.status(503).json({
+        error: 'Serviço congestionado e fila local cheia',
+        detail: result.reason,
+      });
+    }
 
     metrics.ridesQueued.inc();
 
-    structuredLog({
-      nivel: 'WARN',
-      evento: 'CORRIDA_DELEGADA_CORE',
-      corrida_id: ride.rideId,
-      estado_anterior: 'REQUEST',
-      estado_novo: 'DELEGATED',
-      detalhes: {
-        activeRides,
-        rideUuid: delegacao.rideUuid
-      },
-    });
+    console.log(`[RIDES] Corrida ${ride.rideId} enfileirada localmente — posição ${result.position + 1}/${result.queueSize}`);
 
     return res.status(202).json({
-      message: 'Corrida delegada ao Core por congestionamento',
+      message: 'Serviço congestionado — corrida enfileirada localmente',
       localRideId: ride.rideId,
-      core: delegacao
-    });
-
-  } catch (err) {
-
-    console.error('[CORE] Falha ao delegar');
-    console.error('MESSAGE:', err.message);
-    console.error('STATUS:', err.response?.status);
-    console.error('DATA:', err.response?.data);
-    console.error('FULL ERROR:', err);
-
-    return res.status(502).json({
-      error: 'Falha ao delegar corrida ao Core',
-      detail: err.response?.data || err.message
+      queue: { position: result.position, size: result.queueSize },
     });
   }
-}
 
+  // ── Capacidade disponível: aceita com transições temporizadas ─────────────
   _acceptLocally(ride);
   metrics.ridesLocal.inc();
 
@@ -107,49 +120,36 @@ router.get('/core/health', async (req, res) => {
     const result = await coreClient.health();
     res.json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao consultar health do Core',
-      detail: err.message,
-    });
+    res.status(502).json({ error: 'Falha ao consultar health do Core', detail: err.message });
   }
 });
 
 router.post('/core/incoming', async (req, res) => {
-
   try {
-
     const delegatedRide = req.body;
-
     console.log('[CORE] Corrida recebida:', delegatedRide);
 
     const ride = rideSaga.createDelegated({
-      rideId: delegatedRide.rideUuid,
-      passengerId: delegatedRide.passengerId,
-      origin: delegatedRide.origin,
-      destination: delegatedRide.destination,
+      rideId:         delegatedRide.rideUuid,
+      passengerId:    delegatedRide.passengerId,
+      origin:         delegatedRide.origin,
+      destination:    delegatedRide.destination,
       ownerServiceId: delegatedRide.originServiceId || 'core',
-      lamportTs: delegatedRide.logicalTimestamp || Date.now()
+      lamportTs:      delegatedRide.logicalTimestamp || Date.now(),
     });
 
     _acceptLocally(ride);
-
     metrics.ridesReceivedFromCore.inc();
 
     return res.status(202).json({
       accepted: true,
       serviceId: config.serviceId,
       ride: rideSaga.get(ride.rideId),
-      message: 'Corrida delegada recebida e aceita'
+      message: 'Corrida delegada recebida e aceita',
     });
-
   } catch (err) {
-
     console.error('[CORE INCOMING ERROR]', err);
-
-    return res.status(500).json({
-      error: 'Falha ao receber corrida delegada',
-      detail: err.message
-    });
+    return res.status(500).json({ error: 'Falha ao receber corrida delegada', detail: err.message });
   }
 });
 
@@ -158,10 +158,7 @@ router.post('/core/register', async (req, res) => {
     const result = await coreClient.registrarGrupo();
     res.json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao registrar grupo no Core',
-      detail: err.response?.data || err.message,
-    });
+    res.status(502).json({ error: 'Falha ao registrar grupo no Core', detail: err.response?.data || err.message });
   }
 });
 
@@ -170,10 +167,7 @@ router.post('/core/delegar', async (req, res) => {
     const result = await coreClient.solicitarDelegacao(req.body);
     res.status(202).json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao solicitar delegação ao Core',
-      detail: err.response?.data || err.message,
-    });
+    res.status(502).json({ error: 'Falha ao solicitar delegação ao Core', detail: err.response?.data || err.message });
   }
 });
 
@@ -182,10 +176,7 @@ router.get('/core/:rideUuid/proposals', async (req, res) => {
     const result = await coreClient.consultarPropostas(req.params.rideUuid);
     res.json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao consultar propostas no Core',
-      detail: err.response?.data || err.message,
-    });
+    res.status(502).json({ error: 'Falha ao consultar propostas no Core', detail: err.response?.data || err.message });
   }
 });
 
@@ -194,29 +185,17 @@ router.get('/core/:rideUuid/status', async (req, res) => {
     const result = await coreClient.consultarStatus(req.params.rideUuid);
     res.json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao consultar status no Core',
-      detail: err.response?.data || err.message,
-    });
+    res.status(502).json({ error: 'Falha ao consultar status no Core', detail: err.response?.data || err.message });
   }
 });
 
 router.patch('/core/:rideUuid/status', async (req, res) => {
   try {
     const { newState, logicalTimestamp } = req.body;
-
-    const result = await coreClient.atualizarStatus(
-      req.params.rideUuid,
-      newState,
-      logicalTimestamp || Date.now()
-    );
-
+    const result = await coreClient.atualizarStatus(req.params.rideUuid, newState, logicalTimestamp || Date.now());
     res.json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao atualizar status no Core',
-      detail: err.response?.data || err.message,
-    });
+    res.status(502).json({ error: 'Falha ao atualizar status no Core', detail: err.response?.data || err.message });
   }
 });
 
@@ -225,10 +204,7 @@ router.get('/core/:rideUuid/audit', async (req, res) => {
     const result = await coreClient.consultarAuditLog(req.params.rideUuid);
     res.json(result);
   } catch (err) {
-    res.status(502).json({
-      error: 'Falha ao consultar audit log no Core',
-      detail: err.response?.data || err.message,
-    });
+    res.status(502).json({ error: 'Falha ao consultar audit log no Core', detail: err.response?.data || err.message });
   }
 });
 
@@ -244,11 +220,7 @@ router.get('/', (req, res) => {
 // ─────────────────────────────────────────────
 router.get('/:rideId', (req, res) => {
   const ride = rideSaga.get(req.params.rideId);
-
-  if (!ride) {
-    return res.status(404).json({ error: 'Corrida não encontrada' });
-  }
-
+  if (!ride) return res.status(404).json({ error: 'Corrida não encontrada' });
   res.json(ride);
 });
 
@@ -257,15 +229,8 @@ router.get('/:rideId', (req, res) => {
 // ─────────────────────────────────────────────
 router.patch('/:rideId/state', (req, res) => {
   const { newState } = req.body;
-
   const ride = rideSaga.transition(req.params.rideId, newState);
-
-  if (!ride) {
-    return res.status(400).json({
-      error: 'Transição inválida ou corrida não encontrada',
-    });
-  }
-
+  if (!ride) return res.status(400).json({ error: 'Transição inválida ou corrida não encontrada' });
   res.json(ride);
 });
 
@@ -277,13 +242,9 @@ router.post('/:rideId/accept', async (req, res) => {
   const { origin, destination, passengerId, ownerServiceId, lamportTs } = req.body;
 
   let ride = rideSaga.get(rideId);
-
   if (!ride) {
     ride = rideSaga.createDelegated({
-      rideId,
-      passengerId,
-      origin,
-      destination,
+      rideId, passengerId, origin, destination,
       ownerServiceId: ownerServiceId || req.body.ownerService,
       lamportTs,
     });
@@ -292,47 +253,42 @@ router.post('/:rideId/accept', async (req, res) => {
   metrics.ridesReceivedFromCore.inc();
 
   const lockResult = lockManager.acquire(rideId, config.serviceId);
-
   if (!lockResult.acquired) {
-    return res.status(409).json({
-      error: 'Corrida já bloqueada',
-      ...lockResult,
-    });
+    return res.status(409).json({ error: 'Corrida já bloqueada', ...lockResult });
   }
 
   try {
     _acceptLocally(ride);
-
     const clock = getClock(config.serviceId);
     const ackEvent = clock.tick('ride.delegation_accepted', { rideId });
-
     return res.json({
       accepted: true,
       serviceId: config.serviceId,
       ride: rideSaga.get(ride.rideId),
       ackTs: ackEvent.ts,
     });
-
   } catch (err) {
-    return res.status(500).json({
-      error: 'Erro ao aceitar corrida delegada',
-      detail: err.message,
-    });
+    return res.status(500).json({ error: 'Erro ao aceitar corrida delegada', detail: err.message });
   } finally {
     lockManager.release(rideId, config.serviceId);
   }
 });
 
 // ─────────────────────────────────────────────
-// Aceite local
+// Aceite local com transições temporizadas
+// REQUEST → MATCH (imediato) → CONFIRM → IN_TRANSIT → COMPLETE
+// cada passo separado por STEP_MS para ser perceptível na UI
 // ─────────────────────────────────────────────
 function _acceptLocally(ride) {
   const { v4: uuidv4 } = require('uuid');
 
+  // REQUEST → MATCH (imediato)
   rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, {
     assignedService: config.serviceId,
     driverId: `driver-${uuidv4().slice(0, 6)}`,
   });
+
+  console.log(`[RIDES] ${ride.rideId} -> MATCH`);
 
   structuredLog({
     nivel: 'INFO',
@@ -343,7 +299,64 @@ function _acceptLocally(ride) {
     detalhes: { serviceId: config.serviceId },
   });
 
-  rideSaga.transition(ride.rideId, RIDE_STATE.CONFIRM);
+  // MATCH → CONFIRM → IN_TRANSIT → COMPLETE com STEP_MS entre cada passo
+  _schedulePipeline(ride.rideId);
+}
+
+// Pipeline idêntico ao do queue-monitor, reutilizável para corridas locais
+const TRANSITION_PIPELINE = [
+  { from: RIDE_STATE.MATCH,      to: RIDE_STATE.CONFIRM    },
+  { from: RIDE_STATE.CONFIRM,    to: RIDE_STATE.IN_TRANSIT },
+  { from: RIDE_STATE.IN_TRANSIT, to: RIDE_STATE.COMPLETE   },
+];
+
+function _schedulePipeline(rideId) {
+  const ride = rideSaga.get(rideId);
+  if (!ride) return;
+
+  const startIndex = TRANSITION_PIPELINE.findIndex(p => p.from === ride.state);
+  if (startIndex === -1) return;
+
+  function runStep(index) {
+    if (index >= TRANSITION_PIPELINE.length) return;
+    const { from, to } = TRANSITION_PIPELINE[index];
+
+    setTimeout(() => {
+      const current = rideSaga.get(rideId);
+      if (!current) {
+        console.warn(`[RIDES] ${rideId}: corrida sumiu antes de ${from} -> ${to}`);
+        return;
+      }
+      if (current.state !== from) {
+        console.warn(`[RIDES] ${rideId}: esperava ${from} para -> ${to}, estado atual: ${current.state}`);
+        return;
+      }
+
+      const result = rideSaga.transition(rideId, to);
+      if (!result) {
+        console.warn(`[RIDES] ${rideId}: transition() recusou ${from} -> ${to}`);
+        return;
+      }
+
+      console.log(`[RIDES] ${rideId} -> ${to}`);
+
+      if (to === RIDE_STATE.COMPLETE) {
+        structuredLog({
+          nivel: 'INFO',
+          evento: 'CORRIDA_CONCLUIDA',
+          corrida_id: rideId,
+          detalhes: { estadoFinal: RIDE_STATE.COMPLETE },
+        });
+        if (typeof global.wsBroadcast === 'function') {
+          global.wsBroadcast('ride.completed', { rideId });
+        }
+      }
+
+      runStep(index + 1);
+    }, STEP_MS);
+  }
+
+  runStep(startIndex);
 }
 
 // ─────────────────────────────────────────────
@@ -351,17 +364,11 @@ function _acceptLocally(ride) {
 // ─────────────────────────────────────────────
 async function _delegateToWinner(ride, winner) {
   const partner = config.partners?.find(p => p.id === winner.serviceId);
-
-  if (!partner) {
-    throw new Error(`Parceiro ${winner.serviceId} não encontrado`);
-  }
+  if (!partner) throw new Error(`Parceiro ${winner.serviceId} não encontrado`);
 
   const cb = cbRegistry.get(winner.serviceId);
   const clock = getClock(config.serviceId);
-  const delegateTs = clock.tick('ride.delegating', {
-    rideId: ride.rideId,
-    to: winner.serviceId,
-  });
+  const delegateTs = clock.tick('ride.delegating', { rideId: ride.rideId, to: winner.serviceId });
 
   await cb.call(() =>
     axios.post(

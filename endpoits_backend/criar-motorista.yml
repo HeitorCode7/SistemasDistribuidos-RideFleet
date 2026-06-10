@@ -1,6 +1,7 @@
 info:
   name: criar-motorista
   type: http
+  seq: 1
 
 http:
   method: POST
@@ -9,8 +10,8 @@ http:
     type: json
     data: |2-
        {
-              "id": "d11",
-              "nome": "Gab",
+              "id": "d14",
+              "nome": "lucas",
               "status": "AVAILABLE"
             }
   auth: inherit
@@ -20,3 +21,4 @@ settings:
   timeout: 0
   followRedirects: true
   maxRedirects: 5
+​

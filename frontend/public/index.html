@@ -6,6 +6,7 @@
   <title>RideFleet</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     :root {
       --bg: #0a0a0f;
@@ -104,9 +105,23 @@
       font-family: 'Space Mono', monospace;
       font-size: 0.82rem;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .field input:focus { border-color: var(--accent); }
+    .field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(124,110,255,0.12);
+    }
+    .field input.error {
+      border-color: var(--accent2);
+      box-shadow: 0 0 0 3px rgba(255,110,124,0.12);
+    }
+    .field .field-error {
+      font-size: 0.65rem;
+      color: var(--accent2);
+      margin-top: 4px;
+      display: none;
+    }
+    .field .field-error.visible { display: block; }
 
     .btn {
       width: 100%;
@@ -118,14 +133,31 @@
       font-size: 0.9rem;
       letter-spacing: 0.04em;
       cursor: pointer;
-      transition: opacity 0.2s, transform 0.1s;
+      transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+      position: relative;
+      overflow: hidden;
     }
     .btn:active { transform: scale(0.98); }
+    .btn:not(:disabled):hover { opacity: 0.92; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
     .btn-primary {
       background: var(--accent);
       color: #fff;
     }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+    /* Loading spinner inside button */
+    .btn .spinner {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto;
+    }
+    .btn.loading .btn-text { display: none; }
+    .btn.loading .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* Rides list */
     .rides-list {
@@ -140,9 +172,14 @@
       padding: 14px;
       margin-bottom: 10px;
       cursor: pointer;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, background 0.2s, transform 0.15s;
+      animation: slideIn 0.25s ease;
     }
-    .ride-card:hover { border-color: var(--accent); }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .ride-card:hover { border-color: var(--accent); transform: translateY(-1px); }
     .ride-card.selected { border-color: var(--accent); background: #1a1a30; }
     .ride-card-top {
       display: flex;
@@ -203,7 +240,9 @@
       border-bottom: 1px solid var(--border);
       background: var(--surface);
       padding: 0 24px;
+      overflow-x: auto;
     }
+    .content-tabs::-webkit-scrollbar { height: 0; }
     .tab {
       padding: 14px 20px;
       font-size: 0.75rem;
@@ -211,15 +250,17 @@
       color: var(--muted);
       cursor: pointer;
       border-bottom: 2px solid transparent;
-      transition: color 0.2s;
+      transition: color 0.2s, border-color 0.2s;
       background: none;
       border-top: none;
       border-left: none;
       border-right: none;
       font-family: 'Syne', sans-serif;
       font-weight: 600;
+      white-space: nowrap;
     }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab:hover:not(.active) { color: var(--text); }
 
     .tab-panel {
       flex: 1;
@@ -324,7 +365,7 @@
       color: var(--muted);
     }
     .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
-    .empty-state p { font-size: 0.8rem; }
+    .empty-state p { font-size: 0.8rem; line-height: 1.6; }
 
     /* Notification toast */
     .toast {
@@ -340,12 +381,16 @@
       z-index: 999;
       transform: translateY(80px);
       opacity: 0;
-      transition: all 0.3s;
+      transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
     .toast.show { transform: translateY(0); opacity: 1; }
     .toast.success { border-color: var(--accent3); color: var(--accent3); }
     .toast.error   { border-color: var(--accent2); color: var(--accent2); }
     .toast.info    { border-color: var(--accent); color: var(--accent); }
+    .toast-icon { font-size: 1rem; flex-shrink: 0; }
 
     /* Locks panel */
     .lock-item {
@@ -392,6 +437,88 @@
     .btn-info   { background: #10202a; border: 1px solid #30a0f0; color: #30a0f0; }
     .btn-success { background: #0f2a1a; border: 1px solid var(--accent3); color: var(--accent3); }
 
+    /* ── Driver Tracking ── */
+    #tab-tracking .detail-section { padding: 0; overflow: hidden; }
+    .leaflet-map-wrap { height: 300px; width: 100%; }
+    .track-info {
+      padding: 16px 20px;
+    }
+    .track-state-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .track-live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+    .track-live-dot.active {
+      background: var(--accent3);
+      box-shadow: 0 0 8px var(--accent3);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .track-state-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .track-progress-bg {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .track-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent3));
+      border-radius: 2px;
+      transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+    }
+    .track-route-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 0.62rem;
+      color: var(--muted);
+    }
+
+    /* leaflet dark override */
+    .leaflet-container { background: #0d0d18 !important; }
+    .leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(0.85) saturate(0.7); }
+    .leaflet-control-zoom a { background: var(--surface2) !important; color: var(--text) !important; border-color: var(--border) !important; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        height: auto;
+        min-height: calc(100vh - 65px);
+      }
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        max-height: 50vh;
+      }
+      .content { min-height: 50vh; }
+      .eta-strip { grid-template-columns: 1fr 1fr; }
+      .eta-strip .eta-card:last-child { grid-column: span 2; }
+      .sim-grid { grid-template-columns: 1fr; }
+      .log-entry { grid-template-columns: 50px 80px 1fr; font-size: 0.65rem; }
+      header { padding: 14px 20px; }
+      .logo { font-size: 1.2rem; }
+      .tab-panel { padding: 16px; }
+    }
+
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -413,16 +540,22 @@
       <div class="field">
         <label>Passageiro ID</label>
         <input id="passengerId" value="passageiro-001" />
+        <span class="field-error" id="err-passenger">Informe o ID do passageiro.</span>
       </div>
       <div class="field">
         <label>Origem</label>
         <input id="origin" placeholder="Ex: UFV Campus" value="UFV Campus" />
+        <span class="field-error" id="err-origin">Informe a origem.</span>
       </div>
       <div class="field">
         <label>Destino</label>
         <input id="destination" placeholder="Ex: Centro Rio Paranaíba" value="Centro Rio Paranaíba" />
+        <span class="field-error" id="err-destination">Informe o destino.</span>
       </div>
-      <button class="btn btn-primary" id="btn-request">Solicitar Corrida</button>
+      <button class="btn btn-primary" id="btn-request">
+        <span class="btn-text">Solicitar Corrida</span>
+        <div class="spinner"></div>
+      </button>
     </div>
 
     <!-- Rides list -->
@@ -444,6 +577,7 @@
   <div class="content">
     <div class="content-tabs">
       <button class="tab active" data-tab="detail">Detalhes</button>
+      <button class="tab" data-tab="tracking">Motorista</button>
       <button class="tab" data-tab="log">Log Causal</button>
       <button class="tab" data-tab="circuit">Circuit Breakers</button>
       <button class="tab" data-tab="locks">Locks</button>
@@ -464,6 +598,32 @@
         <div class="detail-section">
           <h3>Informações</h3>
           <div id="ride-info"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Driver Tracking tab -->
+    <div class="tab-panel" id="tab-tracking">
+      <div id="tracking-empty" class="empty-state">
+        <div class="icon">🗺️</div>
+        <p>Selecione uma corrida para ver o mapa.</p>
+      </div>
+      <div id="tracking-content" style="display:none;">
+        <div class="detail-section" style="padding:0; overflow:hidden;">
+          <div id="leaflet-map" class="leaflet-map-wrap"></div>
+          <div class="track-info">
+            <div class="track-state-row">
+              <div class="track-live-dot" id="track-live-dot"></div>
+              <span class="track-state-label" id="track-state-label">Aguardando</span>
+            </div>
+            <div class="track-progress-bg">
+              <div class="track-progress-fill" id="track-progress-fill" style="width:0%"></div>
+            </div>
+            <div class="track-route-labels">
+              <span id="track-origin">Origem</span>
+              <span id="track-destination">Destino</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -511,14 +671,18 @@
           <button class="btn btn-sm btn-info"   onclick="sim('audit-clock')">🕐 Ver relógio atual</button>
           <button class="btn btn-sm btn-success" onclick="sim('status')">📊 Status do serviço</button>
         </div>
-        <div id="sim-output" style="margin-top:16px; font-size:0.72rem; color:var(--muted);"></div>
+        <div id="sim-output" style="margin-top:16px; font-size:0.72rem; color:var(--muted); white-space: pre-wrap;"></div>
       </div>
     </div>
   </div>
 </main>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast">
+  <span class="toast-icon" id="toast-icon"></span>
+  <span id="toast-msg"></span>
+</div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   const API = window.location.origin + '/api';
   let selectedRideId = null;
@@ -549,6 +713,7 @@
     if (selectedRideId) {
       await loadRideDetail(selectedRideId);
       await loadCausalLog(selectedRideId);
+      refreshTracking();
     }
   }
 
@@ -564,11 +729,45 @@
     ws.onclose = () => setTimeout(connectWS, 2000);
   }
 
+  // ── Validation ─────────────────────────────
+  function validateForm() {
+    let valid = true;
+    const fields = [
+      { id: 'passengerId', errId: 'err-passenger' },
+      { id: 'origin',      errId: 'err-origin' },
+      { id: 'destination', errId: 'err-destination' },
+    ];
+    fields.forEach(({ id, errId }) => {
+      const input = document.getElementById(id);
+      const err   = document.getElementById(errId);
+      if (!input.value.trim()) {
+        input.classList.add('error');
+        err.classList.add('visible');
+        valid = false;
+      } else {
+        input.classList.remove('error');
+        err.classList.remove('visible');
+      }
+    });
+    return valid;
+  }
+
+  // Clear error on input
+  ['passengerId','origin','destination'].forEach(id => {
+    document.getElementById(id).addEventListener('input', function() {
+      this.classList.remove('error');
+      const errMap = { passengerId: 'err-passenger', origin: 'err-origin', destination: 'err-destination' };
+      document.getElementById(errMap[id]).classList.remove('visible');
+    });
+  });
+
   // ── Request ride ───────────────────────────
   document.getElementById('btn-request').addEventListener('click', async () => {
+    if (!validateForm()) return;
+
     const btn = document.getElementById('btn-request');
     btn.disabled = true;
-    btn.textContent = 'Solicitando...';
+    btn.classList.add('loading');
     try {
       const body = {
         passengerId: document.getElementById('passengerId').value,
@@ -589,7 +788,7 @@
       toast('Erro: ' + err.message, 'error');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Solicitar Corrida';
+      btn.classList.remove('loading');
     }
   });
 
@@ -633,6 +832,7 @@
     renderRidesList();
     await loadRideDetail(rideId);
     await loadCausalLog(rideId);
+    initTrackingForRide(rideId);
   }
 
   async function loadRideDetail(rideId) {
@@ -761,6 +961,7 @@
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
       if (tab.dataset.tab === 'locks') loadLocks();
       if (tab.dataset.tab === 'circuit') loadCircuitBreakers();
+      if (tab.dataset.tab === 'tracking' && selectedRideId) { updateMap(selectedRideId); }
     });
   });
 
@@ -786,10 +987,8 @@
         out.textContent = `✅ ${ok}/10 corridas criadas com sucesso`;
         await loadRides();
       } else if (type === 'concurrent-locks') {
-        // Tenta adquirir lock na mesma corrida 5x simultaneamente
         const rides_now = await fetch(`${API}/rides`).then(r => r.json());
         if (!rides_now.length) { out.textContent = 'Crie uma corrida primeiro.'; return; }
-        const rideId = rides_now[0].rideId;
         const promises = Array.from({ length: 5 }, (_, i) =>
           fetch(`${API}/rides`, {
             method: 'POST',
@@ -819,14 +1018,112 @@
   // ── Toast ──────────────────────────────────
   let toastTimer;
   function toast(msg, type = 'info') {
+    const icons = { success: '✓', error: '✕', info: '●' };
+    document.getElementById('toast-icon').textContent = icons[type] || '●';
+    document.getElementById('toast-msg').textContent = msg;
     const el = document.getElementById('toast');
-    el.textContent = msg;
     el.className = `toast show ${type}`;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // ── Driver Tracking (Leaflet) ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────
+
+  let leafletMap = null;
+  let markerOrigin = null, markerDest = null;
+  const trackingStates = {};
+
+  function leafletIcon(color) {
+    return L.divIcon({
+      className: '',
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #0a0a0f;box-shadow:0 0 8px ${color};"></div>`,
+      iconSize: [14, 14], iconAnchor: [7, 7],
+    });
+  }
+
+  function ensureMap() {
+    if (leafletMap) return;
+    leafletMap = L.map('leaflet-map', { zoomControl: true, attributionControl: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(leafletMap);
+    L.control.attribution({ prefix: false }).addTo(leafletMap);
+  }
+
+  function initTrackingForRide(rideId) {
+    const ride = rides.find(r => r.rideId === rideId);
+    if (!trackingStates[rideId]) {
+      trackingStates[rideId] = { progress: 0, started: Date.now(), state: ride?.state || 'request' };
+    }
+    updateTrackingUI(rideId);
+    if (document.getElementById('tab-tracking').classList.contains('active')) updateMap(rideId);
+  }
+
+  async function geocode(query) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ', Minas Gerais, Brasil')}&format=json&limit=1`);
+      const d = await r.json();
+      if (d.length) return [parseFloat(d[0].lat), parseFloat(d[0].lon)];
+    } catch(_) {}
+    return null;
+  }
+
+  async function updateMap(rideId) {
+    const ride = rides.find(r => r.rideId === rideId);
+    if (!ride) return;
+    ensureMap();
+    setTimeout(() => leafletMap.invalidateSize(), 50);
+
+    const [coordA, coordB] = await Promise.all([geocode(ride.origin), geocode(ride.destination)]);
+    const fallbackA = [-18.97, -49.46]; // Ituiutaba center
+    const fallbackB = [-19.17, -49.93];
+    const a = coordA || fallbackA;
+    const b = coordB || fallbackB;
+
+    if (markerOrigin) markerOrigin.remove();
+    if (markerDest)   markerDest.remove();
+    markerOrigin = L.marker(a, { icon: leafletIcon('#7c6eff') }).addTo(leafletMap).bindPopup(ride.origin);
+    markerDest   = L.marker(b, { icon: leafletIcon('#6effc8') }).addTo(leafletMap).bindPopup(ride.destination);
+    leafletMap.fitBounds([a, b], { padding: [40, 40] });
+  }
+
+  function refreshTracking() {
+    if (!selectedRideId) return;
+    const ride = rides.find(r => r.rideId === selectedRideId);
+    if (!ride) return;
+    const ts = trackingStates[selectedRideId];
+    if (!ts) return;
+    ts.state = ride.state;
+    const target = { request:5, match:15, confirm:25, in_transit: Math.min(95, 25 + Math.floor((Date.now()-ts.started)/600)), complete:100, cancelled:ts.progress }[ride.state] ?? ts.progress;
+    ts.progress += (target - ts.progress) * 0.1;
+    if (document.getElementById('tab-tracking').classList.contains('active')) updateTrackingUI(selectedRideId);
+  }
+
+  function updateTrackingUI(rideId) {
+    const ride = rides.find(r => r.rideId === rideId);
+    const ts   = trackingStates[rideId];
+    if (!ride || !ts) return;
+    document.getElementById('tracking-empty').style.display   = 'none';
+    document.getElementById('tracking-content').style.display = 'block';
+    const dot = document.getElementById('track-live-dot');
+    dot.classList.toggle('active', ride.state === 'in_transit');
+    const labels = { request:'Buscando motorista…', match:'Motorista encontrado', confirm:'A caminho', in_transit:'Em trânsito', complete:'Chegou! ✓', cancelled:'Cancelada', compensating:'Revertendo…' };
+    document.getElementById('track-state-label').textContent     = labels[ride.state] || ride.state;
+    document.getElementById('track-progress-fill').style.width   = ts.progress.toFixed(1) + '%';
+    document.getElementById('track-origin').textContent      = ride.origin;
+    document.getElementById('track-destination').textContent  = ride.destination;
+  }
+
+  function startTrackingLoop() {
+    setInterval(() => {
+      if (!selectedRideId) return;
+      refreshTracking();
+    }, 800);
+  }
+  // ─────────────────────────────────────────────────────────────────
+
   init();
+  startTrackingLoop();
 </script>
 </body>
 </html>

@@ -18,11 +18,16 @@ const { structuredLog }        = require('../logging/logger');
 const { metrics }              = require('../middleware/metrics');
 const config                   = require('../../config');
 
+const TERMINAL_STATES = new Set([RIDE_STATE.COMPLETE, RIDE_STATE.CANCELLED]);
+
 // ── Configurações via env ──────────────────────────────────────────────────
 const DRAIN_INTERVAL_MS = parseInt(process.env.QUEUE_DRAIN_INTERVAL_MS || '5000',  10);
 const MAX_RETRY_COUNT   = parseInt(process.env.QUEUE_MAX_RETRY_COUNT   || '5',     10);
 const MAX_AGE_MS        = parseInt(process.env.QUEUE_MAX_AGE_MS        || '300000', 10); // 5 min
 const BATCH_SIZE        = parseInt(process.env.QUEUE_DRAIN_BATCH_SIZE  || '3',     10);
+
+// Tempo (ms) entre cada transição de estado — perceptível na prática
+const STEP_MS = parseInt(process.env.QUEUE_STEP_MS || '9000', 10); // 9 s por etapa
 
 let _intervalHandle = null;
 let _queue          = null;
@@ -109,6 +114,86 @@ function _shouldDiscard(item) {
   return { discard: false };
 }
 
+// ── Transições sequenciais encadeadas ─────────────────────────────────────
+//
+// Cada etapa só dispara após a anterior ser confirmada. Isso evita que um
+// timeout chegue e encontre o estado errado porque o passo anterior ainda
+// não havia concluído (o bug original).
+
+// Pipeline de transições: cada entrada define de qual estado sai e para qual vai.
+const TRANSITION_PIPELINE = [
+  { from: RIDE_STATE.MATCH,      to: RIDE_STATE.CONFIRM    },
+  { from: RIDE_STATE.CONFIRM,    to: RIDE_STATE.IN_TRANSIT },
+  { from: RIDE_STATE.IN_TRANSIT, to: RIDE_STATE.COMPLETE   },
+];
+
+/**
+ * Agenda as transições restantes a partir do estado atual da corrida.
+ * Encadeia os passos sequencialmente — cada um só dispara após o anterior
+ * concluir, evitando condições de corrida com retries ou múltiplos ciclos.
+ */
+function _scheduleTransitions(rideId) {
+  const ride = rideSaga.get(rideId);
+  if (!ride) return;
+
+  // Descobre em qual passo do pipeline estamos agora
+  const startIndex = TRANSITION_PIPELINE.findIndex(p => p.from === ride.state);
+
+  if (startIndex === -1) {
+    // Estado atual não faz parte do pipeline (ex: já COMPLETE ou CANCELLED)
+    return;
+  }
+
+  // Executa os passos restantes de forma encadeada
+  function runStep(index) {
+    if (index >= TRANSITION_PIPELINE.length) return;
+
+    const { from, to } = TRANSITION_PIPELINE[index];
+
+    setTimeout(() => {
+      const current = rideSaga.get(rideId);
+
+      if (!current) {
+        console.warn(`[QUEUE-MONITOR] ${rideId}: corrida não encontrada na saga ao tentar ${from} -> ${to}`);
+        return;
+      }
+
+      if (current.state !== from) {
+        console.warn(`[QUEUE-MONITOR] ${rideId}: esperava ${from} para -> ${to}, estado atual: ${current.state} — abortando pipeline`);
+        return;
+      }
+
+      const result = rideSaga.transition(rideId, to);
+
+      if (!result) {
+        console.warn(`[QUEUE-MONITOR] ${rideId}: transition() recusou ${from} -> ${to}`);
+        return;
+      }
+
+      console.log(`[QUEUE-MONITOR] ${rideId} -> ${to}`);
+
+      if (to === RIDE_STATE.COMPLETE) {
+        structuredLog({
+          nivel:      'INFO',
+          evento:     'CORRIDA_CONCLUIDA_FILA',
+          corrida_id: rideId,
+          detalhes:   { estadoFinal: RIDE_STATE.COMPLETE },
+        });
+
+        if (typeof global.wsBroadcast === 'function') {
+          global.wsBroadcast('ride.completed', { rideId });
+        }
+      }
+
+      // Agenda o próximo passo somente após este ter sido confirmado
+      runStep(index + 1);
+
+    }, STEP_MS);
+  }
+
+  runStep(startIndex);
+}
+
 // ── Processamento de uma corrida da fila ───────────────────────────────────
 
 async function _processItem(item) {
@@ -163,30 +248,50 @@ async function _processItem(item) {
       });
     }
 
-    // Avança para MATCH + CONFIRM
-    rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, {
-      assignedService: config.serviceId,
-      driverId:        `driver-queue-${item.rideId.slice(0, 6)}`,
-    });
+    // Se a corrida já passou do REQUEST (ex: retry de um ciclo anterior que
+    // avançou parcialmente), não recomeça do zero — retoma do estado atual.
+    // Isso evita dois conjuntos de timeouts brigando pelo mesmo rideId.
+    if (TERMINAL_STATES.has(ride.state)) {
+      console.log(`[QUEUE-MONITOR] ${ride.rideId} já em estado terminal (${ride.state}), ignorando`);
+      return;
+    }
 
-    rideSaga.transition(ride.rideId, RIDE_STATE.CONFIRM);
+    if (ride.state === RIDE_STATE.REQUEST) {
+      // Caminho normal: corrida nova → MATCH
+      rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, {
+        assignedService: config.serviceId,
+        driverId: `driver-queue-${item.rideId.slice(0, 6)}`,
+      });
+      console.log(`[QUEUE-MONITOR] ${ride.rideId} -> MATCH`);
+    } else {
+      // Corrida já em andamento (MATCH, CONFIRM, IN_TRANSIT) — apenas
+      // reagenda as transições restantes a partir do estado atual,
+      // sem criar um novo ponto de partida duplicado.
+      console.log(`[QUEUE-MONITOR] ${ride.rideId} retomando do estado ${ride.state}`);
+    }
+
+    // Agenda as transições seguintes de forma encadeada e sequencial,
+    // partindo do estado em que a corrida se encontra agora.
+    _scheduleTransitions(ride.rideId);
 
     metrics.ridesDequeued.inc();
 
     structuredLog({
       nivel:           'INFO',
       evento:          'CORRIDA_DESENFILEIRADA',
-      corrida_id:      item.rideId,
+      corrida_id:      ride.rideId,
       estado_anterior: 'QUEUED',
-      estado_novo:     'CONFIRM',
-      detalhes:        { retryCount: item.retryCount },
+      estado_novo:     'MATCH',
+      detalhes: {
+        retryCount: item.retryCount,
+        stepMs:     STEP_MS,
+      },
     });
 
-    console.log(`[QUEUE-MONITOR] Corrida ${item.rideId} processada da fila`);
+    console.log(`[QUEUE-MONITOR] Corrida ${ride.rideId} processada da fila — próximas etapas a cada ${STEP_MS / 1000}s`);
 
-    // Broadcast WebSocket (se disponível)
     if (typeof global.wsBroadcast === 'function') {
-      global.wsBroadcast('ride.dequeued', { rideId: item.rideId });
+      global.wsBroadcast('ride.dequeued', { rideId: ride.rideId });
     }
 
   } catch (err) {
@@ -250,7 +355,8 @@ async function start(queue, pool = null) {
 
   console.log(
     `[QUEUE-MONITOR] Iniciado — intervalo: ${DRAIN_INTERVAL_MS}ms | ` +
-    `maxRetries: ${MAX_RETRY_COUNT} | maxAge: ${MAX_AGE_MS / 1000}s | batch: ${BATCH_SIZE}`
+    `maxRetries: ${MAX_RETRY_COUNT} | maxAge: ${MAX_AGE_MS / 1000}s | ` +
+    `batch: ${BATCH_SIZE} | stepMs: ${STEP_MS}`
   );
 }
 
@@ -276,34 +382,25 @@ function snapshot() {
     maxRetryCount:   MAX_RETRY_COUNT,
     maxAgeMs:        MAX_AGE_MS,
     batchSize:       BATCH_SIZE,
+    stepMs:          STEP_MS,
     queue:           _queue ? _queue.snapshot() : null,
   };
 }
 
-module.exports = { start, stop, snapshot };
-
-function startQueueMonitor() {
-  console.log('[QUEUE MONITOR] Monitor iniciado.');
-
-  setInterval(() => {
-    try {
-      const rideQueue = global.rideQueue;
-
-      if (!rideQueue) {
-        console.warn('[QUEUE MONITOR] Fila local ainda não inicializada.');
-        return;
-      }
-
-      const snapshot = rideQueue.snapshot();
-
-      console.log('[QUEUE MONITOR] Snapshot da fila:', snapshot);
-
-    } catch (err) {
-      console.error('[QUEUE MONITOR] Erro:', err.message);
-    }
-  }, 30000);
+/**
+ * Alias para compatibilidade com index.js.
+ * Lê a rideQueue do global (definido antes de chamar esta função)
+ * e o pool do config, se disponível.
+ */
+function startQueueMonitor(queue, pool) {
+  const q = queue || global.rideQueue;
+  if (!q) throw new Error('[QUEUE-MONITOR] rideQueue não encontrada — passe como argumento ou defina global.rideQueue antes de chamar startQueueMonitor()');
+  return start(q, pool || null);
 }
 
 module.exports = {
-  startQueueMonitor
+  start,
+  stop,
+  snapshot,
+  startQueueMonitor,
 };
