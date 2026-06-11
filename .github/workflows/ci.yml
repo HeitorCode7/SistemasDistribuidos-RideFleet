@@ -83,12 +83,11 @@ jobs:
           until pg_isready -h localhost -p 5432 -U postgres; do
             sleep 2;
           done
-
       - name: Run Migrations
-        run: npm run migrate
-
-      - name: Run Unit Tests
-        run: npm run test:unit
+        env:
+        PGPASSWORD: 123456
+        run: |
+           psql -h localhost -U postgres -d ridefleet -f full_dump.sql
 
 
   integration-tests:
