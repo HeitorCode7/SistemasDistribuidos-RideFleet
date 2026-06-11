@@ -81,19 +81,19 @@ const registry = {
     return rows[0] || null;
   },
 
-  // ✅ CORRETO: reset + seed (solução definitiva para testes)
+  // ✅ RESET FINAL CORRIGIDO (UUID-safe + estável para integração)
   async reset() {
     await pool.query(`
       TRUNCATE TABLE drivers RESTART IDENTITY CASCADE
     `);
 
     await pool.query(`
-      INSERT INTO drivers (id, nome, status)
+      INSERT INTO drivers (nome, status)
       VALUES
-        (1, 'Driver A', 'AVAILABLE'),
-        (2, 'Driver B', 'AVAILABLE'),
-        (3, 'Driver C', 'AVAILABLE'),
-        (4, 'Driver D', 'AVAILABLE')
+        ('Driver A', 'AVAILABLE'),
+        ('Driver B', 'AVAILABLE'),
+        ('Driver C', 'AVAILABLE'),
+        ('Driver D', 'AVAILABLE')
     `);
 
     return true;
@@ -112,4 +112,4 @@ registry.snapshot = async function () {
   };
 };
 
-module.exports = registry;
+module.exports = registry;  
