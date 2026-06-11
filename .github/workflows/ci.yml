@@ -83,11 +83,14 @@ jobs:
           until pg_isready -h localhost -p 5432 -U postgres; do
             sleep 2;
           done
+
       - name: Run Migrations
         env:
-        PGPASSWORD: 123456
-        run: |
-           psql -h localhost -U postgres -d ridefleet -f full_dump.sql
+          PGPASSWORD: 123456
+        run: npm run migrate
+
+      - name: Run Unit Tests
+        run: npm run test:unit
 
 
   integration-tests:
@@ -129,6 +132,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Install PostgreSQL Client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
       - name: Wait for Postgres
         run: |
           until pg_isready -h localhost -p 5432 -U postgres; do
@@ -136,6 +142,8 @@ jobs:
           done
 
       - name: Run Migrations
+        env:
+          PGPASSWORD: 123456
         run: npm run migrate
 
       - name: Run Integration Tests
