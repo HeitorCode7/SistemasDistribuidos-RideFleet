@@ -5,7 +5,6 @@ const pool = require('../db');
 const registry = {
 
   async list() {
-
     const { rows } = await pool.query(`
       SELECT * FROM drivers
       ORDER BY nome
@@ -15,7 +14,6 @@ const registry = {
   },
 
   async available() {
-
     const { rows } = await pool.query(`
       SELECT * FROM drivers
       WHERE status = 'AVAILABLE'
@@ -26,7 +24,6 @@ const registry = {
   },
 
   async get(id) {
-
     const { rows } = await pool.query(`
       SELECT * FROM drivers
       WHERE id = $1
@@ -36,7 +33,6 @@ const registry = {
   },
 
   async update(id, data) {
-
     const keys = Object.keys(data);
     const values = Object.values(data);
 
@@ -59,10 +55,7 @@ const registry = {
   },
 
   async setAvailability(id, available) {
-
-    const status = available
-      ? 'AVAILABLE'
-      : 'BUSY';
+    const status = available ? 'AVAILABLE' : 'BUSY';
 
     const { rows } = await pool.query(`
       UPDATE drivers
@@ -79,7 +72,6 @@ const registry = {
   },
 
   async remove(id) {
-
     const { rows } = await pool.query(`
       DELETE FROM drivers
       WHERE id = $1
@@ -89,19 +81,18 @@ const registry = {
     return rows[0] || null;
   },
 
+  // 🔥 CORRIGIDO: reset seguro para testes (sem deadlock)
   async reset() {
-
     await pool.query(`
-      UPDATE drivers
-      SET status = 'AVAILABLE'
+      TRUNCATE TABLE drivers RESTART IDENTITY CASCADE
     `);
 
     return true;
   }
 };
 
+// snapshot (inalterado)
 registry.snapshot = async function () {
-
   const drivers = await this.list();
 
   return {
