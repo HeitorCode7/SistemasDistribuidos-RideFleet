@@ -36,7 +36,6 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
   let driverService;
   let driverRegistry;
   let lockManager;
-  let coreClient;
 
   beforeEach(async () => {
 
@@ -52,67 +51,13 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
     const registryModule = require('../drivers/driverRegistry');
     driverRegistry = registryModule;
 
-    await driverService.reset();
-
+    // 🔥 RESET ÚNICO (responsável por recriar estado consistente)
     if (driverRegistry.reset) {
       await driverRegistry.reset();
     }
 
-    // recria motoristas após reset
-    if (driverRegistry.register) {
-
-      await driverRegistry.register({
-        id: 'driver-1',
-        name: 'João',
-        available: true,
-        online: true,
-      });
-
-      await driverRegistry.register({
-        id: 'driver-2',
-        name: 'Maria',
-        available: true,
-        online: true,
-      });
-
-      await driverRegistry.register({
-        id: 'driver-3',
-        name: 'Carlos',
-        available: true,
-        online: true,
-      });
-
-    } else if (driverRegistry.addDriver) {
-
-      await driverRegistry.addDriver({
-        id: 'driver-1',
-        name: 'João',
-        available: true,
-        online: true,
-      });
-
-      await driverRegistry.addDriver({
-        id: 'driver-2',
-        name: 'Maria',
-        available: true,
-        online: true,
-      });
-
-      await driverRegistry.addDriver({
-        id: 'driver-3',
-        name: 'Carlos',
-        available: true,
-        online: true,
-      });
-
-    }
-
     const { DistributedLockManager } = require('../locks/distributed-lock');
-
     lockManager = new DistributedLockManager(2000);
-
-    const coreModule = require('../core/core-client');
-    coreClient = coreModule.coreClient;
 
   });
 
@@ -145,14 +90,11 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
     });
 
     rideSaga.transition(ride.rideId, RIDE_STATE.CONFIRM);
-
     rideSaga.transition(ride.rideId, RIDE_STATE.IN_TRANSIT);
-
     rideSaga.transition(ride.rideId, RIDE_STATE.COMPLETE);
 
-    expect(
-      rideSaga.get(ride.rideId).state
-    ).toBe(RIDE_STATE.COMPLETE);
+    expect(rideSaga.get(ride.rideId).state)
+      .toBe(RIDE_STATE.COMPLETE);
 
   });
 
@@ -206,9 +148,8 @@ describe('Integration Tests — Ciclo Completo de Corridas', () => {
 
     await new Promise(r => setTimeout(r, 600));
 
-    expect(
-      rideSaga.get(ride.rideId).state
-    ).toBe(RIDE_STATE.CANCELLED);
+    expect(rideSaga.get(ride.rideId).state)
+      .toBe(RIDE_STATE.CANCELLED);
 
   });
 
