@@ -284,4 +284,5 @@ O schema de payload é:
 - **WebSocket**: o servidor expõe WebSocket na mesma porta para o front-end receber
   atualizações em tempo real sem polling.
 / /   t e s t e   d e p l o y  
+ t e s t e   d e p l o y  
  
