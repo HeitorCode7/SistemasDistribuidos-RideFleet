@@ -283,3 +283,5 @@ O schema de payload é:
   não usa `redlock` diretamente — a lógica está em `distributed-lock.js`).
 - **WebSocket**: o servidor expõe WebSocket na mesma porta para o front-end receber
   atualizações em tempo real sem polling.
+/ /   t e s t e   d e p l o y  
+ 

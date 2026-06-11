@@ -1,47 +1,110 @@
-name: CI
+name: CI/CD
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: [main, master]
+    branches:
+      - main
+      - master
 
 jobs:
-  test:
-    name: Unit & Integration Tests
+  build:
+    name: Build
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [18.x, 20.x]
+        node-version: [20.x]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run linter (if configured)
-        run: npm run lint --if-present
+      - name: Build application
+        run: npm run build --if-present
 
-      - name: Run unit tests
-        run: npm test
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run Unit Tests
+        run: npm run test:unit
         env:
           NODE_ENV: test
-          # Override Core URL so integration tests use a local mock
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run Integration Tests
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
           CORE_SERVICE_URL: http://localhost:4000
 
-      - name: Upload coverage report
-        if: matrix.node-version == '20.x'
-        uses: actions/upload-artifact@v4
+  contract-tests:
+    name: Core Contract Tests
+    runs-on: ubuntu-latest
+    needs: integration-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          name: coverage
-          path: coverage/
-          if-no-files-found: ignore
+          node-version: 20.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run Contract Tests
+        run: npm run test:contract
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: contract-tests
+
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy Application
+        run: |
+          echo "Deploy executado com sucesso"

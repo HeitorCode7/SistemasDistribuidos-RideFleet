@@ -5,7 +5,21 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "jest --watch"
+    "dev": "nodemon src/index.js",
+
+    "build": "npm ls",
+
+    "test": "jest --ci",
+
+    "test:unit": "jest --ci src/tests/queue.test.js src/tests/mechanisms.test.js",
+
+    "test:integration": "jest --ci --runInBand src/tests/integration.test.js",
+
+    "test:contract":"jest --ci src/tests/core.contract.test.js",
+
+    "coverage": "jest --coverage --ci",
+
+    "lint": "eslint . --ext .js"
   },
   "dependencies": {
     "amqplib": "^2.0.1",
