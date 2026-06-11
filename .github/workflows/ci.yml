@@ -36,6 +36,7 @@ jobs:
       - name: Build application
         run: npm run build --if-present
 
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -62,6 +63,7 @@ jobs:
       DB_USER: postgres
       DB_PASSWORD: 123456
       DB_NAME: ridefleet
+      NODE_ENV: test
 
     steps:
       - uses: actions/checkout@v4
@@ -76,14 +78,18 @@ jobs:
       - name: Install PostgreSQL Client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-      - name: Create Database Schema
-        env:
-          PGPASSWORD: 123456
+      - name: Wait for Postgres
         run: |
-          psql -h localhost -U postgres -d ridefleet -f full_dump.sql
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            sleep 2;
+          done
+
+      - name: Run Migrations
+        run: npm run migrate
 
       - name: Run Unit Tests
         run: npm run test:unit
+
 
   integration-tests:
     name: Integration Tests
@@ -124,17 +130,18 @@ jobs:
 
       - run: npm ci
 
-      - name: Install PostgreSQL Client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Create Database Schema
-        env:
-          PGPASSWORD: 123456
+      - name: Wait for Postgres
         run: |
-          psql -h localhost -U postgres -d ridefleet -f full_dump.sql
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            sleep 2;
+          done
+
+      - name: Run Migrations
+        run: npm run migrate
 
       - name: Run Integration Tests
         run: npm run test:integration
+
 
   contract-tests:
     name: Core Contract Tests
@@ -154,6 +161,7 @@ jobs:
       - name: Run Contract Tests
         run: npm run test:contract
 
+
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
@@ -162,9 +170,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Deploy Application
-        run: |
-          echo "Deploy executado com sucesso"
+        run: echo "Deploy executado com sucesso"

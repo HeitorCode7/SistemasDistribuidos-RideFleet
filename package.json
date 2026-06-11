@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "migrate": "psql -h localhost -U postgres -d ridefleet -f full_dump.sql",
 
     "build": "npm ls",
 
