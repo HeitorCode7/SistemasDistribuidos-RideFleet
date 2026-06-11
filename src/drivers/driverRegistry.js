@@ -81,31 +81,33 @@ const registry = {
     return rows[0] || null;
   },
 
-  // 🔥 CORRIGIDO: reset seguro para testes (sem deadlock)
+  // ✅ CORRETO: reset + seed (solução definitiva para testes)
   async reset() {
     await pool.query(`
       TRUNCATE TABLE drivers RESTART IDENTITY CASCADE
+    `);
+
+    await pool.query(`
+      INSERT INTO drivers (id, nome, status)
+      VALUES
+        (1, 'Driver A', 'AVAILABLE'),
+        (2, 'Driver B', 'AVAILABLE'),
+        (3, 'Driver C', 'AVAILABLE'),
+        (4, 'Driver D', 'AVAILABLE')
     `);
 
     return true;
   }
 };
 
-// snapshot (inalterado)
+// snapshot
 registry.snapshot = async function () {
   const drivers = await this.list();
 
   return {
     total: drivers.length,
-
-    available: drivers.filter(
-      d => d.status === 'AVAILABLE'
-    ).length,
-
-    busy: drivers.filter(
-      d => d.status === 'BUSY'
-    ).length,
-
+    available: drivers.filter(d => d.status === 'AVAILABLE').length,
+    busy: drivers.filter(d => d.status === 'BUSY').length,
     drivers
   };
 };
