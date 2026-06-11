@@ -16,9 +16,9 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: ridefleet
 
-      CORE_SERVICE_URL: http://host.docker.internal:8080
-      CORE_API_KEY: ${CORE_API_KEY}
-      SERVICE_URL: http://host.docker.internal:3001
+      CORE_SERVICE_URL: http://10.226.0.223:8080
+      CORE_API_KEY: rfk_bbf5fd433f3a1d8b19f513364662ff93
+      SERVICE_URL: http://10.226.0.104:3001
       CONTACT_EMAIL: gabriel.a.santos@ufv.br
       CORE_AUCTION_TIMEOUT_SECONDS: 10
 
