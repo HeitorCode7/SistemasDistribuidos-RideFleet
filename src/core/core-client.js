@@ -13,173 +13,148 @@ function headers() {
   };
 }
 
-function normalizarLocal(local, fallback = {}) {
-  if (typeof local === 'object' && local !== null) {
+// 🔥 NÃO MASCARE ERRO — SÓ NORMALIZA SE EXISTIR
+function normalizarLocal(local) {
+  if (!local) {
+    throw new Error('Local inválido enviado ao Core');
+  }
+
+  if (typeof local === 'string') {
     return {
-      lat: Number(local.lat ?? fallback.lat ?? -20.7546),
-      lng: Number(local.lng ?? fallback.lng ?? -42.8825),
-      street: local.street ?? local.rua ?? fallback.street ?? 'Av. P.H. Rolfs',
-      number: local.number ?? local.numero ?? fallback.number ?? 'S/N',
-      city: local.city ?? local.cidade ?? fallback.city ?? 'Viçosa',
+      street: local,
+      number: 'S/N',
+      city: 'Vicosa',
+      lat: -20.7546,
+      lng: -42.8825,
     };
   }
 
   return {
-    lat: fallback.lat ?? -20.7546,
-    lng: fallback.lng ?? -42.8825,
-    street: String(local || fallback.street || 'Av. P.H. Rolfs'),
-    number: fallback.number ?? 'S/N',
-    city: fallback.city ?? 'Viçosa',
+    lat: Number(local.lat),
+    lng: Number(local.lng),
+    street: local.street || local.rua || 'Origem',
+    number: local.number || local.numero || 'S/N',
+    city: local.city || local.cidade || 'Vicosa',
   };
 }
 
 class CoreClient {
+
   async health() {
-  try {
-
-    console.log('CORE_URL =', CORE_URL);
-    console.log('URL FINAL =', `${CORE_URL}${API_PREFIX}/health`);
-
-    const response = await axios.get(
-      `${CORE_URL}${API_PREFIX}/health`,
-      {
-        timeout: 5000,
-      }
-    );
-
-    console.log('CORE RESPONSE =', response.data);
-
-    return response.data;
-
-  } catch (err) {
-
-    console.error('CORE HEALTH ERROR');
-    console.error('MESSAGE:', err.message);
-    console.error('CODE:', err.code);
-    console.error('STATUS:', err.response?.status);
-    console.error('DATA:', err.response?.data);
-
-    throw err;
+    try {
+      const { data } = await axios.get(
+        `${CORE_URL}${API_PREFIX}/health`,
+        { timeout: 5000 }
+      );
+      return data;
+    } catch (err) {
+      console.error('[CORE] health error:', err.message);
+      throw err;
+    }
   }
-}
 
   async registrarGrupo() {
-    const payload = {
-      groupId: config.serviceId,
-      groupName: `Grupo A - SIN142`,
-      serviceUrl: config.serviceUrl,
-      contactEmail: config.contactEmail,
-    };
+    try {
+      const { data } = await axios.post(
+        `${CORE_URL}${API_PREFIX}/groups/register`,
+        {
+          groupId: config.serviceId,
+          groupName: config.serviceName || `Service-${config.serviceId}`,
+          serviceUrl: config.serviceUrl,
+          contactEmail: config.contactEmail,
+        },
+        {
+          headers: headers(),
+          timeout: 10000,
+        }
+      );
 
-    const { data } = await axios.post(
-      `${CORE_URL}${API_PREFIX}/groups/register`,
-      payload,
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000,
-      }
-    );
-
-    return data;
+      return data;
+    } catch (err) {
+      console.error('[CORE] registrarGrupo error:', err.response?.data || err.message);
+      throw err;
+    }
   }
 
   async solicitarDelegacao(ride) {
     const payload = {
-  originServiceId: '16',
-  passengerId: ride.passengerId || 'p1',
-  origin: {
-    lat: Number(ride.origin?.lat ?? -20.75),
-    lng: Number(ride.origin?.lng ?? -42.88),
-    street: ride.origin?.street || 'Origem',
-    number: ride.origin?.number || '1',
-    city: ride.origin?.city || 'Vicosa',
-  },
-  destination: {
-    lat: Number(ride.destination?.lat ?? -20.76),
-    lng: Number(ride.destination?.lng ?? -42.89),
-    street: ride.destination?.street || 'Destino',
-    number: ride.destination?.number || '2',
-    city: ride.destination?.city || 'Vicosa',
-  },
-  logicalTimestamp: ride.logicalTimestamp || 123,
-  auctionTimeoutSeconds: 10,
-};
+      originServiceId: config.serviceId,
+      passengerId: ride.passengerId,
 
-    const { data } = await axios.post(
-      `${CORE_URL}${API_PREFIX}/rides`,
-      payload,
-      {
-        headers: headers(),
-        timeout: 15000,
-      }
-    );
+      origin: normalizarLocal(ride.origin),
+      destination: normalizarLocal(ride.destination),
 
-    return data;
+      logicalTimestamp: ride.logicalTimestamp || Date.now(),
+      auctionTimeoutSeconds: 10,
+    };
+
+    console.log('[CORE] REQUEST:', payload);
+
+    try {
+      const { data } = await axios.post(
+        `${CORE_URL}${API_PREFIX}/rides`,
+        payload,
+        {
+          headers: headers(),
+          timeout: 15000,
+        }
+      );
+
+      console.log('[CORE] RESPONSE:', data);
+
+      return data;
+
+    } catch (err) {
+      console.error('[CORE] solicitarDelegacao ERROR:', {
+        message: err.message,
+        response: err.response?.data,
+        code: err.code,
+      });
+
+      throw err;
+    }
   }
 
   async consultarPropostas(rideUuid) {
     const { data } = await axios.get(
       `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/proposals`,
-      {
-        headers: headers(),
-        timeout: 10000,
-      }
+      { headers: headers(), timeout: 10000 }
     );
-
     return data;
   }
 
   async consultarStatus(rideUuid) {
     const { data } = await axios.get(
       `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/status`,
-      {
-        headers: headers(),
-        timeout: 10000,
-      }
+      { headers: headers(), timeout: 10000 }
     );
-
     return data;
   }
 
   async atualizarStatus(rideUuid, newState, logicalTimestamp = Date.now()) {
-    const payload = {
-      newState,
-      serviceId: config.serviceId,
-      logicalTimestamp,
-    };
-
     const { data } = await axios.patch(
       `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/status`,
-      payload,
       {
-        headers: headers(),
-        timeout: 10000,
-      }
+        newState,
+        serviceId: config.serviceId,
+        logicalTimestamp,
+      },
+      { headers: headers(), timeout: 10000 }
     );
 
     return data;
-  }
-
-  async confirmarMandato(rideUuid, logicalTimestamp = Date.now()) {
-    return this.atualizarStatus(rideUuid, 'confirm', logicalTimestamp);
   }
 
   async consultarAuditLog(rideUuid) {
     const { data } = await axios.get(
       `${CORE_URL}${API_PREFIX}/rides/${rideUuid}/audit`,
-      {
-        headers: headers(),
-        timeout: 10000,
-      }
+      { headers: headers(), timeout: 10000 }
     );
-
     return data;
   }
 }
 
-const coreClient = new CoreClient();
-
 module.exports = {
   CoreClient,
-  coreClient,
+  coreClient: new CoreClient(),
 };
