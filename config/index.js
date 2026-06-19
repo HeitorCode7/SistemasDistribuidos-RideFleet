@@ -1,6 +1,4 @@
-
 'use strict';
-
 
 function parsePartners(raw = '') {
   if (!raw.trim()) return [];
@@ -24,18 +22,17 @@ function toInt(value, name) {
   return parsed;
 }
 
+// ======================
+// CONFIG PRINCIPAL
+// ======================
 const config = {
-  // ======================
   // SERVICE
-  // ======================
   serviceId: process.env.SERVICE_ID,
   port: toInt(process.env.PORT, 'PORT'),
 
   partners: parsePartners(process.env.PARTNERS || ''),
 
-  // ======================
   // BUSINESS RULES
-  // ======================
   maxLocalRides: toInt(process.env.MAX_LOCAL_RIDES || '5', 'MAX_LOCAL_RIDES'),
   auctionTimeoutMs: toInt(process.env.AUCTION_TIMEOUT_MS || '3000', 'AUCTION_TIMEOUT_MS'),
 
@@ -51,12 +48,14 @@ const config = {
   queueMaxSize: toInt(process.env.QUEUE_MAX_SIZE || '100', 'QUEUE_MAX_SIZE'),
 
   // ======================
-  // CORE INTEGRATION
+  // CORE INTEGRAÇÃO (IMPORTANTE)
   // ======================
   coreApiKey: process.env.CORE_API_KEY,
 
   coreServiceUrl: process.env.CORE_SERVICE_URL,
+
   serviceUrl: process.env.SERVICE_URL,
+
   contactEmail: process.env.CONTACT_EMAIL,
 
   coreAuctionTimeoutSeconds: toInt(
@@ -66,12 +65,26 @@ const config = {
 };
 
 // ======================
-// VALIDAÇÃO DE STARTUP
+// VALIDAÇÃO MAIS SEGURA
 // ======================
 function validateConfig(cfg) {
-  if (!cfg.serviceId) throw new Error('SERVICE_ID não definido');
-  if (!cfg.coreServiceUrl) throw new Error('CORE_SERVICE_URL não definido');
-  if (!cfg.coreApiKey) throw new Error('CORE_API_KEY não definido');
+  const required = [
+    'serviceId',
+    'coreServiceUrl',
+    'coreApiKey',
+    'port'
+  ];
+
+  required.forEach(key => {
+    if (!cfg[key]) {
+      throw new Error(`${key.toUpperCase()} não definido`);
+    }
+  });
+
+  // 🔥 normaliza URL do core (EVITA BUG DE / DUPLO OU LOCALHOST ERRADO)
+  if (cfg.coreServiceUrl.endsWith('/')) {
+    cfg.coreServiceUrl = cfg.coreServiceUrl.slice(0, -1);
+  }
 }
 
 validateConfig(config);

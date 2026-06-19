@@ -7,7 +7,7 @@ services:
       PORT: 3000
       SERVICE_ID: 16
 
-      CORE_SERVICE_URL: http://host.docker.internal:8080
+      CORE_SERVICE_URL: http://ridefleet-core:8080
       CORE_API_KEY: ${CORE_API_KEY}
 
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
@@ -18,21 +18,22 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: ridefleet
 
-      SERVICE_URL: http://grupo-a-loadbalancer
+      SERVICE_URL: http://loadbalancer
       CONTACT_EMAIL: gabriel.a.santos@ufv.br
 
       CORE_AUCTION_TIMEOUT_SECONDS: 10
 
     depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres
+      - rabbitmq
 
     restart: always
+    networks:
+      - grupo-net
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
 
   api2:
     build: .
@@ -41,7 +42,7 @@ services:
       PORT: 3000
       SERVICE_ID: 17
 
-      CORE_SERVICE_URL: http://host.docker.internal:8080
+      CORE_SERVICE_URL: http://ridefleet-core:8080
       CORE_API_KEY: ${CORE_API_KEY}
 
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
@@ -52,104 +53,107 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: ridefleet
 
-      SERVICE_URL: http://grupo-a-loadbalancer
+      SERVICE_URL: http://loadbalancer
       CONTACT_EMAIL: gabriel.a.santos@ufv.br
 
       CORE_AUCTION_TIMEOUT_SECONDS: 10
 
     depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres
+      - rabbitmq
 
     restart: always
+    networks:
+      - grupo-net
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+
   loadbalancer:
     image: nginx:latest
     container_name: grupo-a-loadbalancer
-
     ports:
       - "3001:80"
-
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
-
     depends_on:
       - api1
       - api2
-
     restart: always
+    networks:
+      - grupo-net
+
 
   postgres:
     image: postgres:16
     container_name: grupo-a-postgres
-
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ridefleet
-
     ports:
       - "5433:5432"
-
     volumes:
       - ridefleet_postgres_data:/var/lib/postgresql/data
       - ./full_dump.sql:/docker-entrypoint-initdb.d/full_dump.sql
-
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 20s
-
     restart: always
+    networks:
+      - grupo-net
+
 
   rabbitmq:
     image: rabbitmq:3-management
     container_name: grupo-a-rabbitmq
-
     ports:
       - "5673:5672"
       - "15673:15672"
-
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
-
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 5s
       timeout: 10s
       retries: 10
       start_period: 20s
-
     restart: always
+    networks:
+      - grupo-net
+
 
   prometheus:
     image: prom/prometheus
     container_name: grupo-a-prometheus
-
     ports:
       - "9091:9090"
-
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-
     restart: always
+    networks:
+      - grupo-net
+
 
   grafana:
     image: grafana/grafana
     container_name: grupo-a-grafana
-
     ports:
       - "3011:3000"
-
     restart: always
+    networks:
+      - grupo-net
+
 
 volumes:
   ridefleet_postgres_data:
+
+
+networks:
+  grupo-net:
+    external: true

@@ -5,8 +5,17 @@ const amqp = require('amqplib');
 let connection = null;
 let channel = null;
 
+/*
+ * Filas locais
+ */
 const QUEUE_INPUT = 'pending_rides';
 const QUEUE_OUTPUT = 'core_overflow_rides';
+
+/*
+ * Filas do Core
+ */
+const CORE_RIDE_CREATED_QUEUE = 'ridefleet.groups.ride_created';
+const CORE_STATUS_QUEUE = 'ridefleet.groups.status';
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -21,34 +30,77 @@ async function connectRabbitMQ(maxRetries = 20) {
         `[RabbitMQ] Tentando conexão (${attempt + 1}/${maxRetries})...`
       );
 
-      connection = await amqp.connect(process.env.RABBITMQ_URL);
+      connection = await amqp.connect(
+        process.env.RABBITMQ_URL
+      );
 
       connection.on('error', (err) => {
-        console.error('[RabbitMQ] Erro de conexão:', err.message);
+        console.error(
+          '[RabbitMQ] Erro de conexão:',
+          err.message
+        );
       });
 
       connection.on('close', () => {
-        console.error('[RabbitMQ] Conexão encerrada.');
+        console.error(
+          '[RabbitMQ] Conexão encerrada.'
+        );
       });
 
       channel = await connection.createChannel();
 
-      await channel.assertQueue(QUEUE_INPUT, {
-        durable: true,
-      });
+      /*
+       * Filas locais
+       */
+      await channel.assertQueue(
+        QUEUE_INPUT,
+        {
+          durable: true,
+        }
+      );
 
-      await channel.assertQueue(QUEUE_OUTPUT, {
-        durable: true,
-      });
+      await channel.assertQueue(
+        QUEUE_OUTPUT,
+        {
+          durable: true,
+        }
+      );
 
-      console.log('[RabbitMQ] Conectado com sucesso.');
+      /*
+       * Filas do Core
+       */
+      await channel.assertQueue(
+        CORE_RIDE_CREATED_QUEUE,
+        {
+          durable: true,
+        }
+      );
+
+      await channel.assertQueue(
+        CORE_STATUS_QUEUE,
+        {
+          durable: true,
+        }
+      );
+
       console.log(
-        `[RabbitMQ] Filas disponíveis: ${QUEUE_INPUT}, ${QUEUE_OUTPUT}`
+        '[RabbitMQ] Conectado com sucesso.'
+      );
+
+      console.log(
+        '[RabbitMQ] Filas registradas:',
+        [
+          QUEUE_INPUT,
+          QUEUE_OUTPUT,
+          CORE_RIDE_CREATED_QUEUE,
+          CORE_STATUS_QUEUE,
+        ].join(', ')
       );
 
       return channel;
 
     } catch (err) {
+
       attempt++;
 
       console.error(
@@ -68,14 +120,27 @@ async function connectRabbitMQ(maxRetries = 20) {
 
 function getChannel() {
   if (!channel) {
-    throw new Error('Canal RabbitMQ não inicializado');
+    throw new Error(
+      'Canal RabbitMQ não inicializado'
+    );
   }
 
   return channel;
 }
 
+function getConnection() {
+  if (!connection) {
+    throw new Error(
+      'Conexão RabbitMQ não inicializada'
+    );
+  }
+
+  return connection;
+}
+
 async function closeRabbitMQ() {
   try {
+
     if (channel) {
       await channel.close();
       channel = null;
@@ -86,9 +151,12 @@ async function closeRabbitMQ() {
       connection = null;
     }
 
-    console.log('[RabbitMQ] Conexão encerrada com sucesso.');
+    console.log(
+      '[RabbitMQ] Conexão encerrada com sucesso.'
+    );
 
   } catch (err) {
+
     console.error(
       '[RabbitMQ] Erro ao encerrar conexão:',
       err.message
@@ -109,7 +177,12 @@ process.on('SIGTERM', async () => {
 module.exports = {
   connectRabbitMQ,
   getChannel,
+  getConnection,
   closeRabbitMQ,
+
   QUEUE_INPUT,
   QUEUE_OUTPUT,
+
+  CORE_RIDE_CREATED_QUEUE,
+  CORE_STATUS_QUEUE,
 };
