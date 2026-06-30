@@ -80,6 +80,7 @@ class CoreClient {
     const payload = {
       originServiceId: config.serviceId,
       passengerId: ride.passengerId,
+      passengerName: ride.passengerName || ride.passengerId || 'Passageiro RideFleet',
 
       origin: normalizarLocal(ride.origin),
       destination: normalizarLocal(ride.destination),
@@ -138,6 +139,19 @@ class CoreClient {
         newState,
         serviceId: config.serviceId,
         logicalTimestamp,
+      },
+      { headers: headers(), timeout: 10000 }
+    );
+
+    return data;
+  }
+
+  async adquirirLock(rideUuid, ttlSeconds = 60) {
+    const { data } = await axios.post(
+      `${CORE_URL}${API_PREFIX}/locks/${rideUuid}`,
+      {
+        serviceId: config.serviceId,
+        ttlSeconds,
       },
       { headers: headers(), timeout: 10000 }
     );

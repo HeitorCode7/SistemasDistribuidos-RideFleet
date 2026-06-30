@@ -37,7 +37,6 @@ const {
 } = require('./circuit-breaker/circuit-breaker');
 
 const ridesRouter = require('./routes/rides');
-const auctionRouter = require('./routes/auction');
 const auditRouter = require('./routes/audit');
 const driversRouterFactory = require('./routes/drivers');
 
@@ -46,9 +45,13 @@ const { RideQueue } = require('./queue/ride-queue');
 
 const { coreClient } = require('./core/core-client');
 
-const rideQueue = new RideQueue(
-  config.queueMaxSize
-);
+/**
+ * ⚠️ IMPORTANTE: router do auction corrigido
+ * precisa expor POST /rides/incoming
+ */
+const { auctionRouter } = require('./consensus/auction');
+
+const rideQueue = new RideQueue(config.queueMaxSize);
 
 /*
  * Globals
@@ -70,119 +73,77 @@ app.use(latencyMiddleware);
  * Routes
  */
 app.use('/api/v1/rides', ridesRouter);
-app.use('/api/v1/auction', auctionRouter);
+
+/**
+ * FIX CRÍTICO:
+ * NÃO usar prefixo /api/v1/auction
+ * porque o Core chama /rides/incoming diretamente
+ */
+app.use('/', auctionRouter);
+
 app.use('/api/v1/audit', auditRouter);
-app.use(
-  '/api/v1/drivers',
-  driversRouterFactory(driverRegistry)
-);
+app.use('/api/v1/drivers', driversRouterFactory(driverRegistry));
 
 /*
  * Metrics
  */
-app.get(
-  '/metrics',
-  metricsHandler
-);
+app.get('/metrics', metricsHandler);
 
 /*
  * Health
  */
-app.get(
-  '/api/v1/health',
-  async (req, res) => {
+app.get('/api/v1/health', async (req, res) => {
+  try {
+    const queueSnapshot = rideQueue.snapshot();
+    const driversSnapshot = await driverRegistry.snapshot();
 
-    try {
+    const health = computeHealth(queueSnapshot, driversSnapshot);
+    const alerts = getAlertsSnapshot();
 
-      const queueSnapshot =
-        rideQueue.snapshot();
+    return res.status(200).json({
+      status: health.status,
+      serviceId: config.serviceId,
+      ts: getClock(config.serviceId).now(),
+      uptime: Math.floor(process.uptime()),
+      reasons: health.reasons,
+      details: health.details,
+      alerts: {
+        active: alerts.activeCount,
+        items: alerts.active,
+      },
+    });
 
-      const driversSnapshot =
-        await driverRegistry.snapshot();
-
-      const health =
-        computeHealth(
-          queueSnapshot,
-          driversSnapshot
-        );
-
-      const alerts =
-        getAlertsSnapshot();
-
-      return res.status(200).json({
-        status: health.status,
-        serviceId: config.serviceId,
-        ts: getClock(
-          config.serviceId
-        ).now(),
-        uptime: Math.floor(
-          process.uptime()
-        ),
-        reasons: health.reasons,
-        details: health.details,
-        alerts: {
-          active: alerts.activeCount,
-          items: alerts.active,
-        },
-      });
-
-    } catch (err) {
-
-      return res.status(503).json({
-        status: 'DOWN',
-        error: err.message,
-      });
-    }
+  } catch (err) {
+    return res.status(503).json({
+      status: 'DOWN',
+      error: err.message,
+    });
   }
-);
+});
 
 /*
  * HTTP + WebSocket
  */
-const server =
-  http.createServer(app);
-
-const wss =
-  new WebSocket.Server({
-    server
-  });
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 const clients = new Set();
 
-wss.on(
-  'connection',
-  (ws) => {
+wss.on('connection', (ws) => {
+  clients.add(ws);
+  ws.on('close', () => clients.delete(ws));
+});
 
-    clients.add(ws);
-
-    ws.on(
-      'close',
-      () => clients.delete(ws)
-    );
-  }
-);
-
-global.wsBroadcast = (
-  event,
-  data
-) => {
-
-  const message =
-    JSON.stringify({
-      event,
-      data,
-      serviceId:
-        config.serviceId,
-      timestamp:
-        Date.now(),
-    });
+global.wsBroadcast = (event, data) => {
+  const message = JSON.stringify({
+    event,
+    data,
+    serviceId: config.serviceId,
+    timestamp: Date.now(),
+  });
 
   for (const ws of clients) {
-
-    if (
-      ws.readyState ===
-      WebSocket.OPEN
-    ) {
+    if (ws.readyState === WebSocket.OPEN) {
       ws.send(message);
     }
   }
@@ -192,25 +153,17 @@ global.wsBroadcast = (
  * Registro no Core
  */
 async function registerOnCore() {
-
   try {
+    const result = await coreClient.registrarGrupo();
 
-    const result =
-      await coreClient
-        .registrarGrupo();
-
-    console.log(
-      `[CORE] Grupo registrado: ${config.serviceId}`
-    );
+    console.log(`[CORE] Grupo registrado: ${config.serviceId}`);
 
     return result;
 
   } catch (err) {
-
     console.error(
       '[CORE] Falha ao registrar grupo:',
-      err.response?.data ||
-      err.message
+      err.response?.data || err.message
     );
 
     return null;
@@ -221,83 +174,42 @@ async function registerOnCore() {
  * Startup
  */
 async function start() {
-
   try {
-
-    console.log(
-      '[BOOT] Conectando RabbitMQ...'
-    );
-
+    console.log('[BOOT] Conectando RabbitMQ...');
     await connectRabbitMQ();
 
-    console.log(
-      '[BOOT] Iniciando Core Consumer...'
-    );
-
+    console.log('[BOOT] Iniciando Core Consumer...');
     await startCoreConsumer();
 
-    console.log(
-      '[BOOT] Iniciando Queue Monitor...'
-    );
-
+    console.log('[BOOT] Iniciando Queue Monitor...');
     startQueueMonitor();
 
-    console.log(
-      '[BOOT] Registrando grupo no Core...'
-    );
-
+    console.log('[BOOT] Registrando grupo no Core...');
     await registerOnCore();
 
-    server.listen(
-      config.port,
-      () => {
+    server.listen(config.port, () => {
+      getClock(config.serviceId).tick('service.started', {
+        port: config.port,
+      });
 
-        getClock(
-          config.serviceId
-        ).tick(
-          'service.started',
-          {
-            port:
-              config.port,
-          }
-        );
+      startAlertLoop(async () => ({
+        queue: rideQueue.snapshot(),
+        drivers: await driverRegistry.snapshot(),
+        latency: getLatencyStats(),
+        cb: cbRegistry.snapshot(),
+      }));
 
-        startAlertLoop(
-          async () => ({
-            queue:
-              rideQueue.snapshot(),
-            drivers:
-              await driverRegistry.snapshot(),
-            latency:
-              getLatencyStats(),
-            cb:
-              cbRegistry.snapshot(),
-          })
-        );
+      console.log(
+        `RideFleet Service | ID=${config.serviceId} | PORT=${config.port}`
+      );
+    });
 
-        console.log(
-          `RideFleet Service | ID=${config.serviceId} | PORT=${config.port}`
-        );
-      }
-    );
-
-    /*
-     * Re-registro automático
-     */
-    setInterval(
-      async () => {
-        await registerOnCore();
-      },
-      30000
-    );
+    setInterval(async () => {
+      await registerOnCore();
+    }, 30000);
 
   } catch (err) {
-
-    console.error(
-      '[BOOT] Erro ao iniciar serviço:',
-      err
-    );
-
+    console.error('[BOOT] Erro ao iniciar serviço:', err);
     process.exit(1);
   }
 }

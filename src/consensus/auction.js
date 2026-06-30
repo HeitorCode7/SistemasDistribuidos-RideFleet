@@ -1,20 +1,18 @@
 const axios = require('axios');
+const express = require('express');
 const { registry: cbRegistry } = require('../circuit-breaker/circuit-breaker');
 const { getClock } = require('../logical-clock/lamport-clock');
 const { metrics } = require('../middleware/metrics');
+const { rideSaga, RIDE_STATE } = require('../saga/ride-saga');
+const { coreClient } = require('../core/core-client');
 const config = require('../../config');
 
 class AuctionService {
-  /**
-   * Realiza o leilão de uma corrida entre os parceiros disponíveis.
-   * @param {object} ride - dados da corrida
-   * @returns {object|null} parceiro vencedor ou null se nenhum disponível
-   */
   async runAuction(ride) {
     const clock = getClock(config.serviceId);
     const auctionTs = clock.tick('auction.started', { rideId: ride.rideId });
 
-    console.log(`[AUCTION] Iniciando leilão para ride=${ride.rideId} ts=${auctionTs.ts}`);
+    console.log(`[AUCTION] Iniciando leilao para ride=${ride.rideId} ts=${auctionTs.ts}`);
 
     const proposals = await this._collectProposals(ride, auctionTs.ts);
 
@@ -25,32 +23,37 @@ class AuctionService {
     }
 
     const winner = this._selectWinner(proposals);
-    clock.tick('auction.winner', { rideId: ride.rideId, winner: winner.serviceId });
+
+    clock.tick('auction.winner', {
+      rideId: ride.rideId,
+      winner: winner.serviceId,
+    });
 
     console.log(
-      `[AUCTION] Vencedor: ${winner.serviceId} ETA=${winner.eta}min preço=R$${winner.price}`
+      `[AUCTION] Vencedor: ${winner.serviceId} ETA=${winner.eta}min preco=R$${winner.price}`
     );
+
     metrics.auctionsCompleted.inc({ winner: winner.serviceId });
 
     return winner;
   }
 
-  /** Envia broadcast para todos os parceiros e coleta respostas */
   async _collectProposals(ride, auctionTs) {
     const timeout = config.auctionTimeoutMs;
+
     const requests = config.partners.map(partner =>
       this._requestProposal(partner, ride, auctionTs, timeout)
     );
 
-    // Usa allSettled para não bloquear em caso de timeout/falha parcial
     const results = await Promise.allSettled(requests);
     const proposals = [];
 
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value) {
         proposals.push(result.value);
+
         console.log(
-          `[AUCTION] Proposta de ${result.value.serviceId}: ETA=${result.value.eta} preço=${result.value.price}`
+          `[AUCTION] Proposta de ${result.value.serviceId}: ETA=${result.value.eta} preco=${result.value.price}`
         );
       }
     }
@@ -77,22 +80,16 @@ class AuctionService {
       );
 
       const proposal = response.data;
-      // Proteção contra propostas duplicadas/atrasadas
-      if (!proposal || !proposal.serviceId || proposal.serviceId !== partner.id) return null;
+
+      if (!proposal || proposal.serviceId !== partner.id) return null;
 
       return proposal;
     } catch (err) {
-      console.warn(`[AUCTION] Parceiro ${partner.id} não respondeu: ${err.message}`);
+      console.warn(`[AUCTION] Parceiro ${partner.id} nao respondeu: ${err.message}`);
       return null;
     }
   }
 
-  /**
-   * Critério de seleção determinístico:
-   * 1. Menor ETA
-   * 2. Em empate: menor preço
-   * 3. Em empate: menor serviceId (lexicográfico) — desempate reproduzível
-   */
   _selectWinner(proposals) {
     return proposals.sort((a, b) => {
       if (a.eta !== b.eta) return a.eta - b.eta;
@@ -101,26 +98,166 @@ class AuctionService {
     })[0];
   }
 
-  /**
-   * Gera proposta local para um leilão recebido de outro serviço.
-   */
   generateProposal(ride) {
-    const activeRides = require('../saga/ride-saga').rideSaga
+    const activeRides = rideSaga
       .getAll()
       .filter(r => ['match', 'confirm', 'in_transit'].includes(r.state));
 
-    // ETA baseado na carga local (simplificado)
-    const eta = 3 + activeRides.length * 2; // minutos
-    const price = parseFloat((5 + Math.random() * 10).toFixed(2));
+    const estimatedEta = 180 + activeRides.length * 120;
+    const estimatedPrice = parseFloat((5 + Math.random() * 10).toFixed(2));
+    const logicalTimestamp = getClock(config.serviceId)
+      .tick('auction.proposal_generated', {
+        rideId: ride.rideUuid || ride.rideId,
+      }).ts;
 
     return {
-      serviceId: config.serviceId,
-      eta,
-      price,
+      estimatedEta,
+      estimatedPrice,
+      logicalTimestamp,
       availableDrivers: Math.max(0, config.maxLocalRides - activeRides.length),
     };
   }
 }
 
+const router = express.Router();
 const auctionService = new AuctionService();
-module.exports = { auctionService };
+
+router.post('/rides/incoming', (req, res) => {
+  try {
+    const ride = req.body;
+
+    console.log(`[INCOMING] Leilao recebido ride=${ride.rideUuid || ride.rideId}`);
+
+    const proposal = auctionService.generateProposal(ride);
+
+    return res.status(200).json(proposal);
+  } catch (err) {
+    console.error('[INCOMING] erro ao gerar proposta:', err.message);
+    return res.status(500).json({ error: 'failed to generate proposal' });
+  }
+});
+
+router.post('/rides/:rideUuid/assigned', async (req, res) => {
+  try {
+    const { rideUuid } = req.params;
+    const assignment = req.body;
+    const rideId = assignment.rideUuid || rideUuid;
+
+    console.log(`[CORE] Corrida atribuida pelo Core: ${rideId}`);
+
+    let ride = rideSaga.get(rideId);
+
+    if (!ride) {
+      ride = rideSaga.createDelegated({
+        rideId,
+        passengerId: assignment.passengerId,
+        origin: assignment.origin,
+        destination: assignment.destination,
+        ownerServiceId: assignment.originServiceId || 'core',
+        lamportTs: assignment.logicalTimestamp || Date.now(),
+      });
+    }
+
+    if (ride.state === RIDE_STATE.REQUEST) {
+      rideSaga.transition(rideId, RIDE_STATE.MATCH, {
+        assignedService: config.serviceId,
+        lockExpiresAt: assignment.lockExpiresAt,
+      });
+    }
+
+    metrics.ridesReceivedFromCore.inc();
+
+    if (typeof global.wsBroadcast === 'function') {
+      global.wsBroadcast('ride.assigned', rideSaga.get(rideId));
+    }
+
+    scheduleCoreStatusPipeline(rideId);
+
+    return res.status(200).json({
+      accepted: true,
+      serviceId: config.serviceId,
+      ride: rideSaga.get(rideId),
+    });
+  } catch (err) {
+    console.error('[CORE ASSIGNED] erro ao aceitar corrida:', err.message);
+    return res.status(500).json({
+      error: 'failed to accept assigned ride',
+      detail: err.message,
+    });
+  }
+});
+
+const CORE_STATUS_PIPELINE = [
+  RIDE_STATE.CONFIRM,
+  RIDE_STATE.IN_TRANSIT,
+  RIDE_STATE.COMPLETE,
+];
+
+const activeCorePipelines = new Set();
+
+function scheduleCoreStatusPipeline(rideId) {
+  if (activeCorePipelines.has(rideId)) return;
+
+  activeCorePipelines.add(rideId);
+  runCoreStatusPipeline(rideId)
+    .catch(err => {
+      console.error(
+        `[CORE] Pipeline da corrida ${rideId} falhou:`,
+        err.response?.data || err.message
+      );
+    })
+    .finally(() => activeCorePipelines.delete(rideId));
+}
+
+async function runCoreStatusPipeline(rideId) {
+  const stepMs = parseInt(process.env.QUEUE_STEP_MS || '9000', 10);
+
+  for (const state of CORE_STATUS_PIPELINE) {
+    await delay(stepMs);
+
+    const ride = rideSaga.get(rideId);
+    if (!ride) return;
+
+    if (isPastState(ride.state, state)) {
+      continue;
+    }
+
+    await coreClient.adquirirLock(rideId, 60);
+
+    const ts = getClock(config.serviceId)
+      .tick(`core.status.${state}`, { rideId }).ts;
+
+    await coreClient.atualizarStatus(rideId, state, ts);
+
+    const current = rideSaga.get(rideId);
+    const transitioned = current?.state === state
+      ? current
+      : rideSaga.transition(rideId, state);
+
+    if (!transitioned) {
+      throw new Error(`Estado local nao avancou para ${state} na corrida ${rideId}`);
+    }
+
+    if (typeof global.wsBroadcast === 'function') {
+      global.wsBroadcast('ride.status.changed', {
+        rideId,
+        state,
+      });
+    }
+  }
+}
+
+function isPastState(currentState, targetState) {
+  const currentIndex = CORE_STATUS_PIPELINE.indexOf(currentState);
+  const targetIndex = CORE_STATUS_PIPELINE.indexOf(targetState);
+
+  return currentIndex !== -1 && targetIndex !== -1 && currentIndex >= targetIndex;
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+module.exports = {
+  auctionService,
+  auctionRouter: router,
+};

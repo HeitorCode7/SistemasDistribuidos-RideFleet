@@ -21,7 +21,7 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function connectRabbitMQ(maxRetries = 20) {
+async function connectRabbitMQ(maxRetries = parseInt(process.env.RABBITMQ_MAX_RETRIES || '60', 10)) {
   let attempt = 0;
 
   while (attempt < maxRetries) {
@@ -113,7 +113,7 @@ async function connectRabbitMQ(maxRetries = 20) {
         );
       }
 
-      await sleep(5000);
+      await sleep(parseInt(process.env.RABBITMQ_RETRY_DELAY_MS || '5000', 10));
     }
   }
 }
