@@ -28,7 +28,7 @@ function toInt(value, name) {
 const config = {
   // SERVICE
   serviceId: process.env.SERVICE_ID,
-  port: toInt(process.env.PORT, 'PORT'),
+  port: toInt(process.env.PORT || '3000', 'PORT'),
 
   partners: parsePartners(process.env.PARTNERS || ''),
 

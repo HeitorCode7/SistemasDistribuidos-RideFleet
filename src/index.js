@@ -181,6 +181,9 @@ async function start() {
     console.log('[BOOT] Iniciando Core Consumer...');
     await startCoreConsumer();
 
+    console.log('[BOOT] Garantindo motoristas locais...');
+    await driverRegistry.ensureDefaultDrivers();
+
     console.log('[BOOT] Iniciando Queue Monitor...');
     startQueueMonitor();
 

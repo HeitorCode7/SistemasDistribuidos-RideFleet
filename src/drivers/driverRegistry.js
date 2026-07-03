@@ -3,6 +3,38 @@
 const pool = require('../db');
 
 let resetPromise = null;
+const DEFAULT_DRIVER_COUNT = 30;
+
+function defaultDriversInsertSQL() {
+  return `
+    INSERT INTO drivers (
+      nome, cpf, telefone,
+      placa_veiculo, modelo_veiculo, ano_veiculo,
+      servico_proprietario, numero_motorista_no_servico,
+      habilitacao_numero, habilitacao_valida_ate,
+      status, disponivel_desde, status_verificacao,
+      data_criacao, data_atualizacao
+    )
+    SELECT
+      'Driver ' || n,
+      '333333' || lpad(n::text, 5, '0'),
+      '11999' || lpad(n::text, 6, '0'),
+      'TST' || lpad(n::text, 4, '0'),
+      'Onix',
+      2021,
+      'SERVICE_A',
+      n,
+      'CNHT' || lpad(n::text, 4, '0'),
+      '2030-12-31',
+      'AVAILABLE',
+      NOW(),
+      'VERIFICADO',
+      NOW(),
+      NOW()
+    FROM generate_series(1, $1) AS n
+    ON CONFLICT DO NOTHING
+  `;
+}
 
 const registry = {
 
@@ -51,7 +83,9 @@ const registry = {
 
     const { rows } = await pool.query(`
       UPDATE drivers
-      SET status = $1
+      SET
+        status = $1::text,
+        disponivel_desde = CASE WHEN $1::text = 'AVAILABLE' THEN NOW() ELSE NULL END
       WHERE id = $2
       RETURNING *
     `, [status, id]);
@@ -71,6 +105,44 @@ const registry = {
     return rows[0] || null;
   },
 
+  async ensureDefaultDrivers(count = DEFAULT_DRIVER_COUNT) {
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      await client.query('SELECT pg_advisory_xact_lock(14230)');
+
+      const { rows } = await client.query(`
+        SELECT COUNT(*)::int AS total
+        FROM drivers
+      `);
+
+      if (rows[0].total === 0) {
+        await client.query(defaultDriversInsertSQL(), [count]);
+      }
+
+      await client.query(`
+        UPDATE partner_services
+        SET
+          numero_motoristas = $1,
+          motoristas_disponiveis = (
+            SELECT COUNT(*)::int
+            FROM drivers
+            WHERE status = 'AVAILABLE'
+          )
+        WHERE servico_nome = 'SERVICE_A'
+      `, [count]);
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  },
+
   async reset() {
     if (resetPromise) return resetPromise;
 
@@ -82,18 +154,7 @@ const registry = {
 
         await client.query('TRUNCATE TABLE drivers RESTART IDENTITY CASCADE');
 
-        await client.query(`
-          INSERT INTO drivers (
-            nome, cpf, telefone,
-            placa_veiculo, modelo_veiculo, ano_veiculo,
-            servico_proprietario, habilitacao_numero, habilitacao_valida_ate,
-            status, data_criacao, data_atualizacao
-          )
-          VALUES
-          ('Driver A','11111111111','11999999999','ABC1234','Fiat Uno',2020,'UBER','CNH123','2030-12-31','AVAILABLE',NOW(),NOW()),
-          ('Driver B','22222222222','11988888888','DEF5678','Gol',2019,'UBER','CNH456','2030-12-31','AVAILABLE',NOW(),NOW()),
-          ('Driver C','33333333333','11977777777','GHI9999','Onix',2021,'UBER','CNH789','2030-12-31','AVAILABLE',NOW(),NOW())
-        `);
+        await client.query(defaultDriversInsertSQL(), [DEFAULT_DRIVER_COUNT]);
 
         await client.query('COMMIT');
 

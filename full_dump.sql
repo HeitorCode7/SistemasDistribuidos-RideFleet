@@ -739,6 +739,65 @@ ceb3768f-6158-480d-a68c-6a825c8a738e	Juliana Costa	34999990006	11111111106	AAA1A
 4a4bc073-6b9f-4ecf-9f25-ae21cba9e724	Patr┬ícia Gomes	34999990008	11111111108	AAA1A08	Jeep Renegade	2022	Preto	4	\N	\N	\N	BUSY	\N	5.00	0	0	0	0.00	SERVICE_A	8	CNH0008	2030-12-31	\N	PENDENTE	2026-05-16 13:10:02.03842	2026-05-18 23:15:07.356377	\N	0
 \.
 
+UPDATE public.drivers
+SET
+    status = 'AVAILABLE',
+    disponivel_desde = CURRENT_TIMESTAMP,
+    status_verificacao = 'VERIFICADO';
+
+INSERT INTO public.drivers (
+    id,
+    nome,
+    telefone,
+    cpf,
+    placa_veiculo,
+    modelo_veiculo,
+    ano_veiculo,
+    cor_veiculo,
+    capacidade_passageiros,
+    status,
+    disponivel_desde,
+    avaliacao_media,
+    total_avaliacoes,
+    total_corridas_completadas,
+    total_corridas_canceladas,
+    taxa_cancelamento,
+    servico_proprietario,
+    numero_motorista_no_servico,
+    habilitacao_numero,
+    habilitacao_valida_ate,
+    status_verificacao,
+    data_criacao,
+    data_atualizacao,
+    lamport_clock
+)
+SELECT
+    gen_random_uuid(),
+    'Motorista Extra ' || n,
+    '34999' || lpad(n::text, 6, '0'),
+    '222222' || lpad(n::text, 5, '0'),
+    'RFA' || lpad(n::text, 4, '0'),
+    'Chevrolet Onix',
+    2022,
+    'Branco',
+    4,
+    'AVAILABLE',
+    CURRENT_TIMESTAMP,
+    5.00,
+    0,
+    0,
+    0,
+    0.00,
+    'SERVICE_A',
+    n,
+    'CNH' || lpad(n::text, 4, '0'),
+    DATE '2030-12-31',
+    'VERIFICADO',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP,
+    0
+FROM generate_series(9, 30) AS n;
+
 
 --
 -- Data for Name: error_log; Type: TABLE DATA; Schema: public; Owner: -
@@ -778,6 +837,12 @@ dbbcbb3f-9576-4ba0-a93f-5c1646c7154e	SERVICE_A	ServiÔÇío Principal A	http://l
 --
 -- Data for Name: passengers; Type: TABLE DATA; Schema: public; Owner: -
 --
+
+UPDATE public.partner_services
+SET
+    numero_motoristas = 30,
+    motoristas_disponiveis = 30
+WHERE servico_nome = 'SERVICE_A';
 
 COPY public.passengers (id, nome, email, telefone, senha_hash, cpf, foto_url, metodo_pagamento, avaliacao_media, total_avaliacoes, total_corridas, status, data_criacao, data_atualizacao, criado_por_servico, atualizado_por_servico, lamport_clock) FROM stdin;
 \.

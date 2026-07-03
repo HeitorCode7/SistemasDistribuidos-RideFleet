@@ -5,6 +5,8 @@ const { getClock } = require('../logical-clock/lamport-clock');
 const { metrics } = require('../middleware/metrics');
 const { rideSaga, RIDE_STATE } = require('../saga/ride-saga');
 const { coreClient } = require('../core/core-client');
+const driverRegistry = require('../drivers/driverRegistry');
+const driverService = require('../drivers/driverService');
 const config = require('../../config');
 
 class AuctionService {
@@ -98,13 +100,14 @@ class AuctionService {
     })[0];
   }
 
-  generateProposal(ride) {
+  async generateProposal(ride) {
     const activeRides = rideSaga
       .getAll()
       .filter(r => ['match', 'confirm', 'in_transit'].includes(r.state));
 
+    const availableDrivers = await driverRegistry.available();
     const estimatedEta = 180 + activeRides.length * 120;
-    const estimatedPrice = parseFloat((5 + Math.random() * 10).toFixed(2));
+    const estimatedPrice = parseFloat((Math.random() * 5).toFixed(2));
     const logicalTimestamp = getClock(config.serviceId)
       .tick('auction.proposal_generated', {
         rideId: ride.rideUuid || ride.rideId,
@@ -114,7 +117,7 @@ class AuctionService {
       estimatedEta,
       estimatedPrice,
       logicalTimestamp,
-      availableDrivers: Math.max(0, config.maxLocalRides - activeRides.length),
+      availableDrivers: availableDrivers.length,
     };
   }
 }
@@ -122,13 +125,13 @@ class AuctionService {
 const router = express.Router();
 const auctionService = new AuctionService();
 
-router.post('/rides/incoming', (req, res) => {
+router.post('/rides/incoming', async (req, res) => {
   try {
     const ride = req.body;
 
     console.log(`[INCOMING] Leilao recebido ride=${ride.rideUuid || ride.rideId}`);
 
-    const proposal = auctionService.generateProposal(ride);
+    const proposal = await auctionService.generateProposal(ride);
 
     return res.status(200).json(proposal);
   } catch (err) {
@@ -159,8 +162,20 @@ router.post('/rides/:rideUuid/assigned', async (req, res) => {
     }
 
     if (ride.state === RIDE_STATE.REQUEST) {
+      const driver = await driverService.assignDriver(rideId);
+
+      if (!driver) {
+        console.warn(`[CORE] Corrida ${rideId} recusada: nenhum motorista disponivel`);
+        return res.status(409).json({
+          accepted: false,
+          serviceId: config.serviceId,
+          error: 'no_available_drivers',
+        });
+      }
+
       rideSaga.transition(rideId, RIDE_STATE.MATCH, {
         assignedService: config.serviceId,
+        driverId: driver.id,
         lockExpiresAt: assignment.lockExpiresAt,
       });
     }
@@ -243,6 +258,10 @@ async function runCoreStatusPipeline(rideId) {
         rideId,
         state,
       });
+    }
+
+    if (state === RIDE_STATE.COMPLETE && transitioned.driverId) {
+      await driverService.releaseDriver(transitioned.driverId);
     }
   }
 }

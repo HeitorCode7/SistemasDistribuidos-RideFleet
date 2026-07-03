@@ -13,6 +13,7 @@ const { structuredLog } = require('../logging/logger');
 const { getChannel, QUEUE_INPUT } = require('../rabbitmq');
 const config = require('../../config');
 const { coreClient } = require('../core/core-client');
+const driverService = require('../drivers/driverService');
 
 // Tempo entre transições de estado (ms) — perceptível na UI
 const STEP_MS = parseInt(process.env.QUEUE_STEP_MS || '9000', 10);
@@ -105,7 +106,13 @@ router.post('/', async (req, res) => {
   }
 
   // ── Capacidade disponível: aceita com transições temporizadas ─────────────
-  _acceptLocally(ride);
+  const acceptance = await _acceptLocally(ride);
+  if (!acceptance.accepted) {
+    return res.status(503).json({
+      error: 'Nenhum motorista disponivel para aceitar a corrida',
+    });
+  }
+
   metrics.ridesLocal.inc();
 
   return res.status(201).json({
@@ -138,7 +145,15 @@ router.post('/core/incoming', async (req, res) => {
       lamportTs:      delegatedRide.logicalTimestamp || Date.now(),
     });
 
-    _acceptLocally(ride);
+    const acceptance = await _acceptLocally(ride);
+    if (!acceptance.accepted) {
+      return res.status(409).json({
+        accepted: false,
+        serviceId: config.serviceId,
+        error: 'no_available_drivers',
+      });
+    }
+
     metrics.ridesReceivedFromCore.inc();
 
     return res.status(202).json({
@@ -227,10 +242,13 @@ router.get('/:rideId', (req, res) => {
 // ─────────────────────────────────────────────
 // Alterar estado da corrida
 // ─────────────────────────────────────────────
-router.patch('/:rideId/state', (req, res) => {
+router.patch('/:rideId/state', async (req, res) => {
   const { newState } = req.body;
   const ride = rideSaga.transition(req.params.rideId, newState);
   if (!ride) return res.status(400).json({ error: 'Transição inválida ou corrida não encontrada' });
+  if (newState === RIDE_STATE.COMPLETE && ride.driverId) {
+    await driverService.releaseDriver(ride.driverId);
+  }
   res.json(ride);
 });
 
@@ -258,7 +276,15 @@ router.post('/:rideId/accept', async (req, res) => {
   }
 
   try {
-    _acceptLocally(ride);
+    const acceptance = await _acceptLocally(ride);
+    if (!acceptance.accepted) {
+      return res.status(409).json({
+        accepted: false,
+        serviceId: config.serviceId,
+        error: 'no_available_drivers',
+      });
+    }
+
     const clock = getClock(config.serviceId);
     const ackEvent = clock.tick('ride.delegation_accepted', { rideId });
     return res.json({
@@ -279,13 +305,18 @@ router.post('/:rideId/accept', async (req, res) => {
 // REQUEST → MATCH (imediato) → CONFIRM → IN_TRANSIT → COMPLETE
 // cada passo separado por STEP_MS para ser perceptível na UI
 // ─────────────────────────────────────────────
-function _acceptLocally(ride) {
-  const { v4: uuidv4 } = require('uuid');
+async function _acceptLocally(ride) {
+  const driver = await driverService.assignDriver(ride.rideId);
+
+  if (!driver) {
+    console.warn(`[RIDES] ${ride.rideId}: nenhum motorista disponivel`);
+    return { accepted: false };
+  }
 
   // REQUEST → MATCH (imediato)
   rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, {
     assignedService: config.serviceId,
-    driverId: `driver-${uuidv4().slice(0, 6)}`,
+    driverId: driver.id,
   });
 
   console.log(`[RIDES] ${ride.rideId} -> MATCH`);
@@ -301,6 +332,7 @@ function _acceptLocally(ride) {
 
   // MATCH → CONFIRM → IN_TRANSIT → COMPLETE com STEP_MS entre cada passo
   _schedulePipeline(ride.rideId);
+  return { accepted: true, driverId: driver.id };
 }
 
 // Pipeline idêntico ao do queue-monitor, reutilizável para corridas locais
@@ -341,6 +373,12 @@ function _schedulePipeline(rideId) {
       console.log(`[RIDES] ${rideId} -> ${to}`);
 
       if (to === RIDE_STATE.COMPLETE) {
+        if (result.driverId) {
+          driverService.releaseDriver(result.driverId).catch(err => {
+            console.error(`[RIDES] Falha ao liberar motorista ${result.driverId}:`, err.message);
+          });
+        }
+
         structuredLog({
           nivel: 'INFO',
           evento: 'CORRIDA_CONCLUIDA',

@@ -16,6 +16,7 @@
 const { rideSaga, RIDE_STATE } = require('../saga/ride-saga');
 const { structuredLog }        = require('../logging/logger');
 const { metrics }              = require('../middleware/metrics');
+const driverService            = require('../drivers/driverService');
 const config                   = require('../../config');
 
 const TERMINAL_STATES = new Set([RIDE_STATE.COMPLETE, RIDE_STATE.CANCELLED]);
@@ -173,6 +174,12 @@ function _scheduleTransitions(rideId) {
       console.log(`[QUEUE-MONITOR] ${rideId} -> ${to}`);
 
       if (to === RIDE_STATE.COMPLETE) {
+        if (result.driverId) {
+          driverService.releaseDriver(result.driverId).catch(err => {
+            console.error(`[QUEUE-MONITOR] Falha ao liberar motorista ${result.driverId}:`, err.message);
+          });
+        }
+
         structuredLog({
           nivel:      'INFO',
           evento:     'CORRIDA_CONCLUIDA_FILA',
@@ -257,10 +264,18 @@ async function _processItem(item) {
     }
 
     if (ride.state === RIDE_STATE.REQUEST) {
+      const driver = await driverService.assignDriver(ride.rideId);
+
+      if (!driver) {
+        _queue.enqueue(item, 'no_available_drivers');
+        _queue.incrementRetryCount(item.rideId);
+        return;
+      }
+
       // Caminho normal: corrida nova → MATCH
       rideSaga.transition(ride.rideId, RIDE_STATE.MATCH, {
         assignedService: config.serviceId,
-        driverId: `driver-queue-${item.rideId.slice(0, 6)}`,
+        driverId: driver.id,
       });
       console.log(`[QUEUE-MONITOR] ${ride.rideId} -> MATCH`);
     } else {
