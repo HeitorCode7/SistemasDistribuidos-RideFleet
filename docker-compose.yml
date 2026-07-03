@@ -50,8 +50,8 @@ services:
       PORT: 3000
       SERVICE_ID: 17
 
-      CORE_SERVICE_URL: http://host.docker.internal:8080
-      CORE_API_KEY: ${CORE_API_KEY}
+      CORE_SERVICE_URL: http://192.168.1.237:8080
+      CORE_API_KEY: rfk_fbbd7722a4d2f18c9d3eda30b5c70460 
 
       RABBITMQ_URL: amqp://guest:guest@grupo-a-rabbitmq:5672
       RABBITMQ_MAX_RETRIES: 60

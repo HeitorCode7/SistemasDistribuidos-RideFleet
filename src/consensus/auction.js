@@ -237,12 +237,8 @@ async function runCoreStatusPipeline(rideId) {
       continue;
     }
 
-    await coreClient.adquirirLock(rideId, 60);
-
     const ts = getClock(config.serviceId)
       .tick(`core.status.${state}`, { rideId }).ts;
-
-    await coreClient.atualizarStatus(rideId, state, ts);
 
     const current = rideSaga.get(rideId);
     const transitioned = current?.state === state
@@ -258,6 +254,16 @@ async function runCoreStatusPipeline(rideId) {
         rideId,
         state,
       });
+    }
+
+    try {
+      await coreClient.adquirirLock(rideId, 60);
+      await coreClient.atualizarStatus(rideId, state, ts);
+    } catch (err) {
+      console.warn(
+        `[CORE] Falha ao sincronizar status ${state} da corrida ${rideId}:`,
+        err.response?.data || err.message
+      );
     }
 
     if (state === RIDE_STATE.COMPLETE && transitioned.driverId) {
